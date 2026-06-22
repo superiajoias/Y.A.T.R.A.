@@ -1,0 +1,7 @@
+groq
+pyserial
+Flask
+python-dotenv
+discord.py
+duckduckgo_search
+gunicorn
