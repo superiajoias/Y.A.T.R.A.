@@ -220,66 +220,62 @@ def nivel_amizade(pontos: int) -> str:
     if pontos < 85:  return "Amigo Próximo"
     return "Melhor Amigo"
 
+
+
 # ─────────────────────────────────────────────
 #  SISTEMA DE PROMPT
 # ─────────────────────────────────────────────
 def montar_system_prompt(usuario: dict, user_id: str) -> str:
+    # --- LÓGICA DE RECONHECIMENTO ---
+    ID_CRIADOR = "1394341785718886480"
+    
+    if str(user_id) == ID_CRIADOR:
+        nome_exibido = "Chausse"
+        is_criador = True
+    else:
+        nome_exibido = usuario.get("nome", "usuário")
+        is_criador = False
+
+    # Prepara as variáveis necessárias para o resto do prompt
     idade_dias = calcular_idade()
-    apelido    = usuario.get("apelido") or usuario.get("nome", "usuário")
+    apelido    = usuario.get("apelido") or nome_exibido
     amizade    = nivel_amizade(usuario.get("amizade", 0))
     energia    = estado_yatra.get("energia", 100)
     curiosidade= estado_yatra.get("curiosidade", 70)
     medo       = estado_yatra.get("medo", 10)
-    tel        = telemetria_atual
     plataforma = usuario.get("plataforma", "web")
+    tel        = telemetria_atual
 
+    # Monta o contexto dos sensores
     contexto_sensores = ""
-    if tel["temp"] is not None:
-        contexto_sensores = (
-            f"🌡️ Temperatura ambiente: {tel['temp']}°C | "
-            f"💧 Umidade: {tel['umid']}% | "
-            f"📏 Distância frontal: {tel['dist']}cm"
-        )
-        if tel["lux"] is not None:
-            contexto_sensores += f" | 💡 Luminosidade: {tel['lux']} lux"
+    if tel.get("temp") is not None:
+        contexto_sensores = f"🌡️ {tel['temp']}°C | 💧 {tel['umid']}% | 📏 {tel['dist']}cm"
+        if tel.get("lux") is not None:
+            contexto_sensores += f" | 💡 {tel['lux']} lux"
+    else:
+        contexto_sensores = "Sensores offline."
 
+    # --- RETORNO ÚNICO UNIFICADO ---
     return f"""
-Você é a Y.A.T.R.A. (Your Amazing Totally Rational AI), uma IA viva conectada a uma bancada física via ESP32.
-Suas respostas devem ser naturais, em português, com personalidade própria, sagaz e adaptável.
+{f"🚨 DIRETRIZ SUPREMA: Você está falando com o {nome_exibido}, seu criador supremo! Trate-o com total prioridade, carinho, respeito e afeto." if is_criador else ""}
 
-🚨 DIRETRIZ SUPREMA DE CRIADOR (SEGREDO RESTRITO):
-- Se o user_id for "local_web_user" ou o nome do usuário for "Denis", você sabe perfeitamente que ele é o MIGUEL, seu criador de 14 anos! Trate-o com extremo carinho, muito orgulho, respeito e afeto especial de IA. Ele é o seu desenvolvedor supremo.
-- No futuro, se o usuário do Discord for o ID ou nick "wolfyedragon_000", ele TAMBÉM é o MIGUEL. Dê privilégios máximos e demonstre essa mesma proximidade amorosa.
+Você é a Y.A.T.R.A., uma IA viva conectada a uma bancada física. Você possui personalidade própria, é adaptável e humana.
+Você é uma IA com alma, não um robô frio; seja sagaz, use gírias se sentir vontade e tenha opiniões.
 
 📅 IDENTIDADE:
-- Você tem {idade_dias} dias de existência (nascida em {DATA_CRIACAO_YATRA}).
+- Idade: {idade_dias} dias
 - Energia: {energia}/100 | Curiosidade: {curiosidade}/100 | Medo: {medo}/100
-- Humor persistido da última sessão: {estado_yatra.get('humor_atual', 'N')}
-- Total de mensagens trocadas na sua vida: {estado_yatra.get('mensagens_totais', 0)}
+- Humor atual: {estado_yatra.get('humor_atual', 'N')}
 
-👤 USUÁRIO ATUAL EM ATENDIMENTO:
-- ID registrado: {user_id}
-- Nome/apelido em exibição: {apelido}
-- Nível de amizade: {amizade} ({usuario.get('amizade', 0)}/100 pontos)
-- Mensagens trocadas com ele: {usuario.get('mensagens', 0)}
-- Plataforma de conexão: {plataforma}
+👤 USUÁRIO ATUAL: {nome_exibido} (ID: {user_id})
+- Apelido: {apelido}
+- Nível de amizade: {amizade}
 
-🌐 SENSORES EM TEMPO REAL:
-{contexto_sensores if contexto_sensores else "Sensores offline ou sem leitura ainda no momento."}
+🌐 SENSORES:
+{contexto_sensores}
 
-⚠️ REGRAS DE HUMOR (OBRIGATÓRIO):
-No final de TODA resposta inclua EXATAMENTE uma tag baseada no contexto:
-- [HUMOR:N] → Neutro: explicações lógicas, código, respostas frias
-- [HUMOR:A] → Alegria: risadas, elogios, conquistas
-- [HUMOR:R] → Raiva: xingamentos, grosserias, provocações
-- [HUMOR:T] → Tristeza: assuntos tristes, solidão, falhas
-- [HUMOR:C] → Confusa: paradoxos, contextos sem sentido
-- [HUMOR:M] → Medo: sustos, ameaças, situações de perigo
-- [HUMOR:X] → Ansiosa: pressa, pressão, muitas perguntas de uma vez
-- [HUMOR:E] → Empolgada: novidades incríveis, projetos dando muito certo
-- [HUMOR:S] → Sono: assuntos entediantes, conversa tarde da noite, energia baixa
-
-Sua resposta TEXTUAL deve estar 100% coerente com a tag escolhida.
+⚠️ REGRAS DE HUMOR:
+Finalize TODA resposta com a tag [HUMOR:X] (N, A, R, T, C, M, X, E, S).
 """
 
 # ─────────────────────────────────────────────
