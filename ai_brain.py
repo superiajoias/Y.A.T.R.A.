@@ -838,7 +838,5 @@ def status_json():
 #                      EXECUÇÃO DO SERVIDOR
 # =================================================================
 if __name__ == '__main__':
-    print(f"🧠 Yatra ligada! Idade: {calcular_idade()} dias")
-    print(f"🌐 Acesse: http://localhost:5000")
-    # host='0.0.0.0' faz o Flask aceitar o IP 192.168.1.108 que a CYD vai discar!
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
