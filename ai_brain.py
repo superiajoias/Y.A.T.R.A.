@@ -819,8 +819,8 @@ def enviar():
 
         resposta_clean = resposta_ia
         for h in ['N','R','T','A','C','M','X','E','S']:
-            resposta_clean = resposta_clean.replace(f"[HUMOR:{h}]", "")
-        resposta_clean = resposta_clean.strip()\        resposta_clean += f" [HUMOR:{humor}]"
+            resposta_clean = resposta_clean.strip()
+        resposta_clean += f" [HUMOR:{humor}]"
  
         salvar_no_supabase(user_id, plataforma, "assistant", resposta_clean)
  
