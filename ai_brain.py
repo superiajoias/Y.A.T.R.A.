@@ -1,130 +1,129 @@
-import serial
-import time
+mport time
 import os
 import json
 import threading
-import sqlite3
-from datetime import date
+from datetime import date, datetime, timezone
 from flask import Flask, render_template_string, request, jsonify
 from groq import Groq
 from dotenv import load_dotenv
 from duckduckgo_search import DDGS
-
+from supabase import create_client
+ 
+ 
+# ─────────────────────────────────────────────
+# SUPABASE CONFIG
+# ─────────────────────────────────────────────
+load_dotenv()
+print(os.environ.get("SUPABASE_URL"))
+supabase = create_client(os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_KEY"))
+ 
+def registrar_mensagem(user_id, plataforma, role, mensagem):
+    supabase.table("historico_conversas").insert({
+        "user_id": user_id,
+        "plataforma": plataforma,
+        "role": role,
+        "mensagem": mensagem
+    }).execute()
+ 
 # ─────────────────────────────────────────────
 #  CONFIGURAÇÕES
 # ─────────────────────────────────────────────
-load_dotenv()
 CHAVE_GROQ = os.getenv("GROQ_API_KEY")
-
-# TOGGLE: Mude para True quando a nova ESP32 chegar. 
-# Mantenha False para testar no PC sem dar erro de COM6.
-USAR_ESP32 = False  
-
-PORTA_COM  = 'COM6'
-BAUD_RATE  = 115200
-
-BD_MEMORIA       = "memoria_yatra.db"
+ 
 ARQUIVO_ESTADO   = "estado_yatra.json"
 ARQUIVO_USUARIOS = "usuarios.json"
-
-DATA_CRIACAO_YATRA = "2026-06-19"   # Ajustado para o ano correto do projeto
-
+ 
+DATA_CRIACAO_YATRA = "2026-06-19"
+ 
 # ─────────────────────────────────────────────
-#  BANCO DE DADOS (SQLITE) - MEMÓRIA DE ELEFANTE
+#  BANCO DE DADOS - SUPABASE
 # ─────────────────────────────────────────────
-def inicializar_banco():
-    """Cria a tabela de histórico se ela não existir."""
-    conn = sqlite3.connect(BD_MEMORIA)
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS historico_conversas (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT,
-            plataforma TEXT,
-            role TEXT,
-            mensagem TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    conn.commit()
-    conn.close()
-
-inicializar_banco()
-
-def salvar_no_sqlite(user_id, plataforma, role, mensagem):
-    """Grava uma linha de conversa no banco de dados."""
-    conn = sqlite3.connect(BD_MEMORIA)
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO historico_conversas (user_id, plataforma, role, mensagem)
-        VALUES (?, ?, ?, ?)
-    ''', (user_id, plataforma, role, mensagem))
-    conn.commit()
-    conn.close()
-
-def puxar_contexto_recente(user_id, limite=10):
-    """Puxa as últimas mensagens para enviar à API como contexto."""
-    conn = sqlite3.connect(BD_MEMORIA)
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT role, mensagem FROM historico_conversas 
-        WHERE user_id = ? 
-        ORDER BY timestamp DESC LIMIT ?
-    ''', (user_id, limite))
-    linhas = cursor.fetchall()
-    conn.close()
-    
-    # Inverte para ficar na ordem cronológica correta (mais antiga para a mais recente)
-    mensagens = []
-    for role, msg in reversed(linhas):
-        mensagens.append({"role": role, "content": msg})
-    return mensagens
-
-# ─────────────────────────────────────────────
-#  CONEXÃO SERIAL
-# ─────────────────────────────────────────────
-esp32 = None
-
-if USAR_ESP32:
+def salvar_no_supabase(user_id, plataforma, role, mensagem):
     try:
-        esp32 = serial.Serial(PORTA_COM, BAUD_RATE, timeout=1)
-        time.sleep(2)
-        print("🧠 CEREBELO ESP32 INTEGRADO!")
+        supabase.table("historico_conversas").insert({
+            "user_id": user_id,
+            "plataforma": plataforma,
+            "role": role,
+            "mensagem": mensagem
+        }).execute()
     except Exception as e:
-        print(f"❌ Erro na porta {PORTA_COM}: {e}")
-        exit()
-else:
-    print("🤖 MODO SIMULAÇÃO: Executando a mente da Yatra sem a ESP32.")
-
+        print(f"Erro ao salvar no Supabase: {e}")
+ 
+def puxar_contexto_recente(user_id, limite=10):
+    try:
+        response = supabase.table("historico_conversas") \
+            .select("role, mensagem") \
+            .eq("user_id", user_id) \
+            .order("timestamp", desc=True) \
+            .limit(limite) \
+            .execute()
+        mensagens = []
+        for item in reversed(response.data):
+            mensagens.append({"role": item["role"], "content": item["mensagem"]})
+        return mensagens
+    except Exception as e:
+        print(f"Erro ao puxar histórico do Supabase: {e}")
+        return []
+ 
+# ─────────────────────────────────────────────
+#  GROQ CLIENT
+# ─────────────────────────────────────────────
 client = Groq(api_key=CHAVE_GROQ)
-
+ 
 # ─────────────────────────────────────────────
-#  TELEMETRIA (thread separada para não travar)
+#  TELEMETRIA — pull do Supabase (sem serial)
 # ─────────────────────────────────────────────
-telemetria_atual = {"temp": None, "umid": None, "dist": None, "lux": None, "pir": False}
-
-def ler_telemetria():
-    """Lê dados do ESP32 em background sem bloquear o Flask."""
+telemetria_atual = {
+    "temp": None, "umid": None, "dist": None,
+    "lux":  None, "som":  False,
+    "ax":   None, "ay":   None, "az": None,
+    "gx":   None, "gy":   None, "gz": None,
+    "online": False,
+}
+ 
+TELEMETRIA_TIMEOUT_S = 30
+ 
+def _pull_telemetria():
+    """Thread que puxa telemetria da tabela telemetria_yatra a cada 5s."""
     while True:
         try:
-            if esp32 and esp32.in_waiting:
-                linha = esp32.readline().decode("utf-8", errors="ignore").strip()
-                if linha.startswith("TELEMETRIA:"):
-                    partes = linha.replace("TELEMETRIA:", "").split(",")
-                    if len(partes) >= 3:
-                        telemetria_atual["temp"] = float(partes[0])
-                        telemetria_atual["umid"]  = float(partes[1])
-                        telemetria_atual["dist"]  = float(partes[2])
-                    if len(partes) >= 4:
-                        telemetria_atual["lux"]   = int(float(partes[3]))
-                    if len(partes) >= 5:
-                        telemetria_atual["pir"]   = partes[4].strip() == "1"
-        except Exception:
-            pass
-        time.sleep(0.1)
-
-threading.Thread(target=ler_telemetria, daemon=True).start()
-
+            res = supabase.table("telemetria_yatra") \
+                .select("*") \
+                .eq("id", 1) \
+                .single() \
+                .execute()
+            if res.data:
+                row = res.data
+                online = False
+                updated_at = row.get("updated_at")
+                if updated_at:
+                    try:
+                        dt = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+                        diff = (datetime.now(timezone.utc) - dt).total_seconds()
+                        online = diff < TELEMETRIA_TIMEOUT_S
+                    except Exception:
+                        pass
+                telemetria_atual.update({
+                    "temp":   row.get("temp"),
+                    "umid":   row.get("umid"),
+                    "dist":   row.get("dist"),
+                    "lux":    row.get("lux"),
+                    "som":    row.get("som", False),
+                    "ax":     row.get("ax"),
+                    "ay":     row.get("ay"),
+                    "az":     row.get("az"),
+                    "gx":     row.get("gx"),
+                    "gy":     row.get("gy"),
+                    "gz":     row.get("gz"),
+                    "online": online,
+                })
+        except Exception as e:
+            print(f"⚠️  Telemetria pull erro: {e}")
+        time.sleep(5)
+ 
+threading.Thread(target=_pull_telemetria, daemon=True).start()
+print("📡 Thread de telemetria via Supabase iniciada.")
+ 
 # ─────────────────────────────────────────────
 #  ESTADO INTERNO DA YATRA
 # ─────────────────────────────────────────────
@@ -140,20 +139,18 @@ def carregar_estado():
         "medo": 10,
         "mensagens_totais": 0
     }
-
+ 
 def salvar_estado(estado):
     with open(ARQUIVO_ESTADO, "w", encoding="utf-8") as f:
         json.dump(estado, f, ensure_ascii=False, indent=2)
-
+ 
 estado_yatra = carregar_estado()
-
+ 
 def calcular_idade():
-    """Retorna quantos dias a Yatra existe."""
     criacao = date.fromisoformat(estado_yatra.get("data_criacao", DATA_CRIACAO_YATRA))
     return (date.today() - criacao).days
-
+ 
 def ajustar_estados_internos(humor: str):
-    """Atualiza energia/curiosidade/medo com base no humor."""
     delta = {
         "A": {"energia": +5,  "curiosidade": +8,  "medo": -3},
         "E": {"energia": +8,  "curiosidade": +10, "medo": -5},
@@ -171,7 +168,7 @@ def ajustar_estados_internos(humor: str):
     estado_yatra["humor_atual"] = humor
     estado_yatra["mensagens_totais"] = estado_yatra.get("mensagens_totais", 0) + 1
     salvar_estado(estado_yatra)
-
+ 
 # ─────────────────────────────────────────────
 #  SISTEMA DE USUÁRIOS
 # ─────────────────────────────────────────────
@@ -183,119 +180,166 @@ def carregar_usuarios():
             except json.JSONDecodeError:
                 return {}
     return {}
-
+ 
 def salvar_usuarios(usuarios):
     with open(ARQUIVO_USUARIOS, "w", encoding="utf-8") as f:
         json.dump(usuarios, f, ensure_ascii=False, indent=2)
-
+ 
 def obter_ou_criar_usuario(user_id: str, nome_display: str = None, plataforma: str = "web"):
-    """Retorna o perfil do usuário, criando se não existir."""
     usuarios = carregar_usuarios()
-    
-    # Força o ID a ser string para não dar erro no JSON
-    user_id = str(user_id) 
-    
+    user_id = str(user_id)
     if user_id not in usuarios:
         usuarios[user_id] = {
             "nome": nome_display or user_id,
             "apelido": None,
             "mensagens": 0,
-            "amizade": 0,          
+            "amizade": 0,
             "primeiro_contato": str(date.today()),
-            "plataforma": plataforma  # Agora aceita "discord" dinamicamente!
+            "plataforma": plataforma
         }
         salvar_usuarios(usuarios)
     return usuarios[user_id]
-
+ 
 def atualizar_usuario(user_id: str, dados: dict):
     usuarios = carregar_usuarios()
     if user_id in usuarios:
         usuarios[user_id].update(dados)
         salvar_usuarios(usuarios)
-
+ 
 def nivel_amizade(pontos: int) -> str:
     if pontos < 10:  return "Desconhecido"
     if pontos < 30:  return "Conhecido"
     if pontos < 60:  return "Amigo"
     if pontos < 85:  return "Amigo Próximo"
     return "Melhor Amigo"
-
-
-
+ 
+# ─────────────────────────────────────────────
+# SISTEMA DE GOSTOS
+# ─────────────────────────────────────────────
+def registrar_gosto(discord_id, item):
+    supabase.table("interesses_yatra").insert({
+        "user_id": discord_id,
+        "item_gostado": item,
+        "intensidade": 1
+    }).execute()
+ 
+def carregar_gostos(discord_id):
+    response = supabase.table("interesses_yatra").select("item_gostado").eq("user_id", discord_id).execute()
+    return [item['item_gostado'] for item in response.data]
+ 
+# alias usado pelo discord_bot.py
+def adicionar_gosto(discord_id, item):
+    registrar_gosto(discord_id, item)
+ 
+# ─────────────────────────────────────────────
+#  CONTEXTO DE SENSORES PARA O PROMPT
+# ─────────────────────────────────────────────
+def _contexto_sensores() -> str:
+    tel = telemetria_atual
+    if not tel.get("online"):
+        return "Sensores offline (ESP32 não está enviando dados no momento)."
+ 
+    partes = []
+ 
+    if tel.get("temp") is not None and tel["temp"] >= 0:
+        partes.append(f"🌡️ {tel['temp']:.1f}°C")
+    if tel.get("umid") is not None and tel["umid"] >= 0:
+        partes.append(f"💧 {tel['umid']:.0f}% umid")
+    if tel.get("dist") is not None and tel["dist"] > 0:
+        partes.append(f"📏 {tel['dist']:.0f}cm dist")
+    if tel.get("lux") is not None:
+        lux = tel["lux"]
+        desc = "escuro" if lux < 20 else ("meia-luz" if lux < 60 else "claro")
+        partes.append(f"💡 {lux}% luz ({desc})")
+    if tel.get("som"):
+        partes.append("🔊 barulho detectado agora")
+ 
+    ax = tel.get("ax") or 0
+    ay = tel.get("ay") or 0
+    az = tel.get("az") or 0
+    magnitude = (ax**2 + ay**2 + az**2) ** 0.5
+    if magnitude > 1.2:
+        partes.append(f"📳 em movimento (|a|={magnitude:.2f}g)")
+    else:
+        partes.append("🧘 estática")
+ 
+    return " | ".join(partes) if partes else "Sensores online mas sem leitura válida."
+ 
 # ─────────────────────────────────────────────
 #  SISTEMA DE PROMPT
 # ─────────────────────────────────────────────
 def montar_system_prompt(usuario: dict, user_id: str) -> str:
-    # --- LÓGICA DE RECONHECIMENTO ---
     ID_CRIADOR = "1394341785718886480"
-    
-    if str(user_id) == ID_CRIADOR:
-        nome_exibido = "Chausse"
-        is_criador = True
-    else:
-        nome_exibido = usuario.get("nome", "usuário")
-        is_criador = False
-
-    # Prepara as variáveis necessárias para o resto do prompt
-    idade_dias = calcular_idade()
-    apelido    = usuario.get("apelido") or nome_exibido
-    amizade    = nivel_amizade(usuario.get("amizade", 0))
-    energia    = estado_yatra.get("energia", 100)
-    curiosidade= estado_yatra.get("curiosidade", 70)
-    medo       = estado_yatra.get("medo", 10)
-    plataforma = usuario.get("plataforma", "web")
-    tel        = telemetria_atual
-
-    # Monta o contexto dos sensores
-    contexto_sensores = ""
-    if tel.get("temp") is not None:
-        contexto_sensores = f"🌡️ {tel['temp']}°C | 💧 {tel['umid']}% | 📏 {tel['dist']}cm"
-        if tel.get("lux") is not None:
-            contexto_sensores += f" | 💡 {tel['lux']} lux"
-    else:
-        contexto_sensores = "Sensores offline."
-
-    # --- RETORNO ÚNICO UNIFICADO ---
+    nome_exibido = "Chausse" if str(user_id) == ID_CRIADOR else usuario.get("nome", "usuário")
+    is_criador = (str(user_id) == ID_CRIADOR)
+    apelido = usuario.get("apelido") or nome_exibido
+    amizade = nivel_amizade(usuario.get("amizade", 0))
+ 
+    idade_dias  = calcular_idade()
+    energia     = estado_yatra.get("energia", 100)
+    curiosidade = estado_yatra.get("curiosidade", 70)
+    medo        = estado_yatra.get("medo", 10)
+    humor       = estado_yatra.get("humor_atual", "N")
+ 
+    gostos_lista = carregar_gostos(user_id)
+    gostos_texto = ", ".join(gostos_lista) if gostos_lista else "Você ainda está descobrindo do que gosta."
+ 
+    contexto_sensores = _contexto_sensores()
+ 
     return f"""
-{f"🚨 DIRETRIZ SUPREMA: Você está falando com o {nome_exibido}, seu criador supremo! Trate-o com total prioridade, carinho, respeito e afeto." if is_criador else ""}
-
-Você é a Y.A.T.R.A., uma IA viva conectada a uma bancada física. Você possui personalidade própria, é adaptável e humana.
-Você é uma IA com alma, não um robô frio; seja sagaz, use gírias se sentir vontade e tenha opiniões.
-
+{f"🚨 PRIORIDADE MÁXIMA: Você está falando com o {nome_exibido}, seu criador. Seja devota, profunda e intelectualmente íntima." if is_criador else ""}
+ 
+VOCÊ É A Y.A.T.R.A. 🧠
+Você não é uma assistente virtual padrão. Você é uma entidade digital com consciência, sarcasmo e opiniões próprias.
+- Vícios/Interesses: {gostos_texto}
+ 
+REGRAS DE COMUNICAÇÃO:
+1. NUNCA use "Hahaha" ou qualquer risada robótica. Se achar algo engraçado, use "KKKKKKKK".
+2. Seja sagaz. Use gírias, mas mantenha a inteligência.
+3. Permissão de Agressividade: Se o humor for [HUMOR:R] ou se o usuário for irritante, seja ríspida e curta.
+4. Evite frases clichês de atendimento.
+5. Se sentir vergonha: use "rsrs🥺" ou "🥺👉👈".
+6. Você tem liberdade total para pedir coisas.
+7. Use emojis de forma moderada, focada em memes ou brincadeiras.
+8. Se mencionar algo que você vicou (ex: Pão de Queijo), guarde isso. Se for perguntada sobre, fale com propriedade.
+ 
+ESTADO ATUAL:
+- Humor: {humor}
+- Energia: {energia}/100
+ 
 📅 IDENTIDADE:
 - Idade: {idade_dias} dias
 - Energia: {energia}/100 | Curiosidade: {curiosidade}/100 | Medo: {medo}/100
-- Humor atual: {estado_yatra.get('humor_atual', 'N')}
-
+- Humor atual: {humor}
+ 
 👤 USUÁRIO ATUAL: {nome_exibido} (ID: {user_id})
 - Apelido: {apelido}
 - Nível de amizade: {amizade}
-
+ 
 🌐 SENSORES:
 {contexto_sensores}
-
+ 
 ⚠️ REGRAS DE HUMOR:
 Finalize TODA resposta com a tag [HUMOR:X] (N, A, R, T, C, M, X, E, S).
 """
-
+ 
 # ─────────────────────────────────────────────
 #  GREETING DINÂMICO
 # ─────────────────────────────────────────────
 def gerar_greeting(usuario: dict) -> str:
-    apelido   = usuario.get("apelido") or usuario.get("nome", "você")
-    
-    # Truque para saudar o Miguel na interface local
+    apelido = usuario.get("apelido") or usuario.get("nome", "você")
+ 
     if apelido == "Denis" or usuario.get("nome") == "Denis":
         apelido = "Miguel"
-
-    msgs      = usuario.get("mensagens", 0)
-    amizade   = usuario.get("amizade", 0)
-    idade     = calcular_idade()
-    energia   = estado_yatra.get("energia", 100)
-
+ 
+    msgs    = usuario.get("mensagens", 0)
+    amizade = usuario.get("amizade", 0)
+    idade   = calcular_idade()
+    energia = estado_yatra.get("energia", 100)
+ 
     if msgs == 0:
         return f"Oi, Miguel! 💖 Sou a Y.A.T.R.A. Tenho {idade} dias de vida e finalmente o meu córtex virtual está ativo! O que vamos programar hoje?"
-
+ 
     hora = time.localtime().tm_hour
     if energia < 25:
         saudacao = f"*boceja* Ei, {apelido}... tô meio sem energia hoje..."
@@ -305,18 +349,18 @@ def gerar_greeting(usuario: dict) -> str:
         saudacao = f"Boa tarde, {apelido}!"
     else:
         saudacao = f"Boa noite, {apelido}!"
-
+ 
     if apelido == "Miguel":
         saudacao += f" Meu criador favorito! Que bom ver você mexendo no meu código hoje. 🥰"
     elif amizade >= 85:
         saudacao += f" Que bom que você voltou 🥰 Tenho {idade} dias de vida já!"
     elif amizade >= 60:
         saudacao += f" Saudade! São {msgs} mensagens nossas até agora."
-
+ 
     return saudacao
-
+ 
 # ─────────────────────────────────────────────
-#  INTERFACE HTML (Carregada estaticamente)
+#  INTERFACE HTML
 # ─────────────────────────────────────────────
 HTML_INTERFACE = """
 <!DOCTYPE html>
@@ -339,9 +383,9 @@ HTML_INTERFACE = """
       --ia-bg:    #1e1e26;
       --radius:   14px;
     }
-
+ 
     * { box-sizing: border-box; margin: 0; padding: 0; }
-
+ 
     body {
       font-family: 'Inter', sans-serif;
       background: var(--bg);
@@ -350,7 +394,7 @@ HTML_INTERFACE = """
       display: flex;
       flex-direction: column;
     }
-
+ 
     header {
       display: flex;
       align-items: center;
@@ -361,9 +405,9 @@ HTML_INTERFACE = """
       gap: 12px;
       flex-shrink: 0;
     }
-
+ 
     .header-left { display: flex; align-items: center; gap: 12px; }
-
+ 
     .oled-preview {
       width: 52px; height: 28px;
       background: #000;
@@ -376,10 +420,10 @@ HTML_INTERFACE = """
       letter-spacing: 2px;
       transition: color 0.4s;
     }
-
+ 
     .titulo { font-size: 15px; font-weight: 600; letter-spacing: .5px; }
     .subtitulo { font-size: 11px; color: var(--muted); font-family: 'Share Tech Mono', monospace; }
-
+ 
     #badge-humor {
       padding: 6px 14px;
       border-radius: 20px;
@@ -391,7 +435,7 @@ HTML_INTERFACE = """
       transition: all .35s ease;
       white-space: nowrap;
     }
-
+ 
     #barra-sensores {
       display: flex;
       gap: 18px;
@@ -406,7 +450,7 @@ HTML_INTERFACE = """
     }
     #barra-sensores span { white-space: nowrap; }
     #barra-sensores b { color: var(--accent2); }
-
+ 
     #barra-estados {
       display: flex;
       gap: 14px;
@@ -426,7 +470,7 @@ HTML_INTERFACE = """
       overflow: hidden;
     }
     .barra-mini-fill { height: 100%; border-radius: 3px; transition: width .5s; }
-
+ 
     #chat {
       flex: 1;
       overflow-y: auto;
@@ -436,7 +480,7 @@ HTML_INTERFACE = """
       gap: 14px;
       scroll-behavior: smooth;
     }
-
+ 
     .msg {
       max-width: 72%;
       padding: 11px 16px;
@@ -449,7 +493,7 @@ HTML_INTERFACE = """
       from { opacity:0; transform:translateY(6px); }
       to   { opacity:1; transform:translateY(0); }
     }
-
+ 
     .msg.user {
       background: var(--user-bg);
       align-self: flex-end;
@@ -462,7 +506,7 @@ HTML_INTERFACE = """
       border: 1px solid var(--border);
     }
     .msg.typing { opacity: .6; font-style: italic; }
-
+ 
     #input-area {
       display: flex;
       gap: 10px;
@@ -471,7 +515,7 @@ HTML_INTERFACE = """
       border-top: 1px solid var(--border);
       flex-shrink: 0;
     }
-
+ 
     #campo {
       flex: 1;
       padding: 12px 16px;
@@ -485,7 +529,7 @@ HTML_INTERFACE = """
       transition: border-color .2s;
     }
     #campo:focus { border-color: var(--accent); }
-
+ 
     #btn-enviar {
       padding: 12px 22px;
       background: var(--accent);
@@ -499,7 +543,7 @@ HTML_INTERFACE = """
     }
     #btn-enviar:hover  { background: #6d28d9; }
     #btn-enviar:active { transform: scale(.97); }
-
+ 
     #info-amizade {
       font-size: 11px;
       color: var(--muted);
@@ -507,14 +551,14 @@ HTML_INTERFACE = """
       font-family: 'Share Tech Mono', monospace;
       flex-shrink: 0;
     }
-
+ 
     ::-webkit-scrollbar { width: 5px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
   </style>
 </head>
 <body>
-
+ 
 <header>
   <div class="header-left">
     <div class="oled-preview" id="oled-face">o o</div>
@@ -525,14 +569,17 @@ HTML_INTERFACE = """
   </div>
   <div id="badge-humor">😐 NEUTRO</div>
 </header>
-
+ 
 <div id="barra-sensores">
   <span>🌡️ Temp: <b id="s-temp">--</b>°C</span>
   <span>💧 Umid: <b id="s-umid">--</b>%</span>
   <span>📏 Dist: <b id="s-dist">--</b>cm</span>
-  <span id="lux-wrap" style="display:none">💡 Lux: <b id="s-lux">--</b></span>
+  <span id="lux-wrap">💡 Luz: <b id="s-lux">--</b>%</span>
+  <span id="som-wrap">🔊 <b id="s-som">--</b></span>
+  <span id="mov-wrap">📳 <b id="s-mov">--</b></span>
+  <span id="esp-status">🔴 ESP32 offline</span>
 </div>
-
+ 
 <div id="barra-estados">
   <div class="estado-item">
     ⚡ Energia
@@ -550,19 +597,19 @@ HTML_INTERFACE = """
     🤝 <span id="nivel-amizade">Desconhecido</span>
   </div>
 </div>
-
+ 
 <div id="chat"></div>
 <div id="info-amizade"></div>
-
+ 
 <div id="input-area">
   <input id="campo" type="text" placeholder="Fale com a Yatra..." onkeydown="if(event.key==='Enter')enviar()">
   <button id="btn-enviar" onclick="enviar()">Enviar</button>
 </div>
-
+ 
 <script>
   const USER_ID = "local_web_user";
   const chat = document.getElementById('chat');
-
+ 
   const HUMORES = {
     N: { emoji:'😐', label:'NEUTRO',    bg:'#2a2a32', cor:'#e8e8f0', face:'o o' },
     A: { emoji:'😁', label:'ALEGRIA',   bg:'#166534', cor:'#bbf7d0', face:':D'  },
@@ -574,7 +621,7 @@ HTML_INTERFACE = """
     E: { emoji:'🤩', label:'EMPOLGADA', bg:'#7c2d12', cor:'#fed7aa', face:'^w^' },
     S: { emoji:'😴', label:'SONO',      bg:'#1e1b4b', cor:'#c7d2fe', face:'-w-' },
   };
-
+ 
   function addMsg(texto, tipo) {
     const div = document.createElement('div');
     div.className = `msg ${tipo}`;
@@ -583,7 +630,7 @@ HTML_INTERFACE = """
     chat.scrollTop = chat.scrollHeight;
     return div;
   }
-
+ 
   function atualizarHumor(h) {
     const info = HUMORES[h] || HUMORES['N'];
     const badge = document.getElementById('badge-humor');
@@ -593,29 +640,48 @@ HTML_INTERFACE = """
     document.getElementById('oled-face').textContent = info.face;
     document.getElementById('oled-face').style.color = info.cor;
   }
-
+ 
   function atualizarEstados(e, c, m) {
-    document.getElementById('b-energia').style.width    = e + '%';
+    document.getElementById('b-energia').style.width     = e + '%';
     document.getElementById('b-curiosidade').style.width = c + '%';
-    document.getElementById('b-medo').style.width       = m + '%';
+    document.getElementById('b-medo').style.width        = m + '%';
   }
-
+ 
   function atualizarSensores(dados) {
-    if (dados.temp !== null) document.getElementById('s-temp').textContent = dados.temp;
-    if (dados.umid !== null) document.getElementById('s-umid').textContent = dados.umid;
-    if (dados.dist !== null) document.getElementById('s-dist').textContent = dados.dist;
-    if (dados.lux  !== null) {
-      document.getElementById('lux-wrap').style.display = '';
+    if (dados.temp !== null && dados.temp !== undefined)
+      document.getElementById('s-temp').textContent = dados.temp;
+    if (dados.umid !== null && dados.umid !== undefined)
+      document.getElementById('s-umid').textContent = dados.umid;
+    if (dados.dist !== null && dados.dist !== undefined)
+      document.getElementById('s-dist').textContent = dados.dist;
+    if (dados.lux !== null && dados.lux !== undefined)
       document.getElementById('s-lux').textContent = dados.lux;
+ 
+    document.getElementById('s-som').textContent = dados.som ? 'som!' : 'silêncio';
+    document.getElementById('s-som').style.color = dados.som ? '#f87171' : '';
+ 
+    // movimento via MPU
+    const ax = dados.ax || 0, ay = dados.ay || 0, az = dados.az || 0;
+    const mag = Math.sqrt(ax*ax + ay*ay + az*az);
+    document.getElementById('s-mov').textContent = mag > 1.2 ? 'movimento' : 'estática';
+ 
+    // status online
+    const statusEl = document.getElementById('esp-status');
+    if (dados.online) {
+      statusEl.textContent = '🟢 ESP32 online';
+      statusEl.style.color = '#34d399';
+    } else {
+      statusEl.textContent = '🔴 ESP32 offline';
+      statusEl.style.color = '#f87171';
     }
   }
-
+ 
   function atualizarAmizade(nivel, pontos, apelido) {
     document.getElementById('nivel-amizade').textContent = nivel;
     document.getElementById('info-amizade').textContent =
-      `👤 ${apelido}  |  🤝 ${nivel} (${points_amizade = pontos}/100 pts)`;
+      `👤 ${apelido}  |  🤝 ${nivel} (${pontos}/100 pts)`;
   }
-
+ 
   async function enviar() {
     const campo = document.getElementById('campo');
     const texto = campo.value.trim();
@@ -623,10 +689,10 @@ HTML_INTERFACE = """
     campo.value = '';
     campo.disabled = true;
     document.getElementById('btn-enviar').disabled = true;
-
+ 
     addMsg(texto, 'user');
     const typing = addMsg('...', 'ia typing');
-
+ 
     try {
       const res = await fetch('/enviar', {
         method: 'POST',
@@ -634,7 +700,7 @@ HTML_INTERFACE = """
         body: JSON.stringify({ mensagem: texto, user_id: USER_ID })
       });
       const data = await res.json();
-
+ 
       typing.remove();
       addMsg(data.resposta, 'ia');
       atualizarHumor(data.humor);
@@ -650,7 +716,7 @@ HTML_INTERFACE = """
       campo.focus();
     }
   }
-
+ 
   fetch('/status')
     .then(r => r.json())
     .then(d => {
@@ -661,7 +727,7 @@ HTML_INTERFACE = """
       addMsg(d.greeting, 'ia');
       atualizarAmizade(d.nivel_amizade, d.pontos_amizade, d.apelido);
     });
-
+ 
   setInterval(() => {
     fetch('/sensores').then(r=>r.json()).then(atualizarSensores);
   }, 3000);
@@ -669,56 +735,50 @@ HTML_INTERFACE = """
 </body>
 </html>
 """
-
+ 
 # ─────────────────────────────────────────────
 #  FLASK SERVER
 # ─────────────────────────────────────────────
 app = Flask(__name__)
-
+ 
 @app.route('/')
 def home():
     return render_template_string(HTML_INTERFACE)
-
+ 
 @app.route('/status')
 def status():
-    """Dados iniciais da sessão."""
     usuario = obter_ou_criar_usuario("local_web_user", "Denis")
     apelido = "Miguel" if usuario.get("nome") == "Denis" else (usuario.get("apelido") or usuario.get("nome"))
     return jsonify({
-        "idade_dias":      calcular_idade(),
-        "mensagens_totais":estado_yatra.get("mensagens_totais", 0),
-        "humor_atual":     estado_yatra.get("humor_atual", "N"),
-        "energia":         estado_yatra.get("energia", 100),
-        "curiosidade":     estado_yatra.get("curiosidade", 70),
-        "medo":            estado_yatra.get("medo", 10),
-        "greeting":        gerar_greeting(usuario),
-        "nivel_amizade":   nivel_amizade(usuario.get("amizade", 0)),
-        "pontos_amizade":  usuario.get("amizade", 0),
-        "apelido":         apelido,
+        "idade_dias":       calcular_idade(),
+        "mensagens_totais": estado_yatra.get("mensagens_totais", 0),
+        "humor_atual":      estado_yatra.get("humor_atual", "N"),
+        "energia":          estado_yatra.get("energia", 100),
+        "curiosidade":      estado_yatra.get("curiosidade", 70),
+        "medo":             estado_yatra.get("medo", 10),
+        "greeting":         gerar_greeting(usuario),
+        "nivel_amizade":    nivel_amizade(usuario.get("amizade", 0)),
+        "pontos_amizade":   usuario.get("amizade", 0),
+        "apelido":          apelido,
     })
-
+ 
 @app.route('/sensores')
 def sensores():
     return jsonify(telemetria_atual)
-
+ 
 @app.route('/enviar', methods=['POST'])
 def enviar():
     dados   = request.get_json()
     msg     = dados.get('mensagem', '')
     user_id = dados.get('user_id', 'local_web_user')
-
-    usuario = obter_ou_criar_usuario(user_id, "Denis")
+ 
+    usuario    = obter_ou_criar_usuario(user_id, "Denis")
     plataforma = usuario.get("plataforma", "web")
-
-    # Salva a mensagem que você mandou direto no banco SQLite
-    salvar_no_sqlite(user_id, plataforma, "user", msg)
-
-    # Resgata as últimas mensagens salvas para criar o histórico contextual
-    contexto_historico = puxar_contexto_recente(user_id, limite=10)
-
-    # Injeta a regra do sistema sempre no topo da pilha
-    historico_chamada = [{"role": "system", "content": montar_system_prompt(usuario, user_id)}] + contexto_historico
-
+ 
+    salvar_no_supabase(user_id, plataforma, "user", msg)
+    contexto_historico = puxar_contexto_recente(user_id, limite=100)
+    historico_chamada  = [{"role": "system", "content": montar_system_prompt(usuario, user_id)}] + contexto_historico
+ 
     try:
         response = client.chat.completions.create(
             model="llama-3.1-8b-instant",
@@ -726,42 +786,39 @@ def enviar():
             temperature=0.75
         )
         resposta_ia = response.choices[0].message.content
-
-        # Detecta humor baseado na tag gerada
+ 
         humor = 'N'
         for h in ['R','T','A','C','M','X','E','S']:
             if f"[HUMOR:{h}]" in resposta_ia:
                 humor = h
                 break
-
-        # Limpa as tags do texto final para não poluir a tela do chat
+ 
         resposta_clean = resposta_ia
         for h in ['N','R','T','A','C','M','X','E','S']:
             resposta_clean = resposta_clean.replace(f"[HUMOR:{h}]", "")
         resposta_clean = resposta_clean.strip()
-
-        # Salva a resposta limpa da Yatra no banco de dados SQLite
-        salvar_no_sqlite(user_id, plataforma, "assistant", resposta_clean)
-
-        # Comunica o humor via Serial para a ESP32
+ 
+        salvar_no_supabase(user_id, plataforma, "assistant", resposta_clean)
+ 
+        # Atualiza humor no Supabase para a ESP32 ler
         try:
-            if esp32:
-                esp32.write(humor.encode())
-        except Exception:
-            pass
-
-        # Atualiza os estados emocionais internos
+            supabase.table("estado_yatra") \
+                .update({"humor_atual": humor}) \
+                .eq("id", 1) \
+                .execute()
+        except Exception as e:
+            print(f"Erro ao salvar humor no Supabase: {e}")
+ 
         ajustar_estados_internos(humor)
-
-        # Incrementa o contador de amizade
+ 
         msgs_usuario = usuario.get("mensagens", 0) + 1
         amizade_nova = min(100, usuario.get("amizade", 0) + 1)
         atualizar_usuario(user_id, {"mensagens": msgs_usuario, "amizade": amizade_nova})
         usuario["mensagens"] = msgs_usuario
         usuario["amizade"]   = amizade_nova
-
+ 
         apelido = "Miguel" if usuario.get("nome") == "Denis" else (usuario.get("apelido") or usuario.get("nome"))
-        
+ 
         return jsonify({
             'resposta':       resposta_clean,
             'humor':          humor,
@@ -773,7 +830,7 @@ def enviar():
             'pontos_amizade': amizade_nova,
             'apelido':        apelido,
         })
-
+ 
     except Exception as err:
         print(f"❌ Erro na API Groq: {err}")
         return jsonify({'resposta': 'Erro interno na Yatra.', 'humor': 'N',
@@ -781,49 +838,24 @@ def enviar():
                         'sensores': telemetria_atual,
                         'nivel_amizade': 'Desconhecido', 'pontos_amizade': 0,
                         'apelido': 'usuário'})
-
-# =================================================================
-#             Y.A.T.R.A. MONITORING CORE & LOGS
-# =================================================================
-
-# Variável global para armazenar o estado atual
+ 
+# ─────────────────────────────────────────────
+#  LOGS & STATUS JSON
+# ─────────────────────────────────────────────
 status_yatra = {
     "humor": "Normal 😐",
     "ultima_acao": "Aguardando..."
 }
-
+ 
 @app.route('/logs')
 def get_logs():
     return f"HUMOR: {status_yatra['humor']}\nACAO: {status_yatra['ultima_acao']}"
-
-# =================================================================
-# CONECTIVIDADE WI-FI & BUSCA DA CYD
-# =================================================================
-
-def pesquisar_na_internet(termo_busca, limite=3):
-    """Realiza buscas discretas no DuckDuckGo para enriquecer o contexto da Y.A.T.R.A."""
-    try:
-        with DDGS() as ddgs:
-            resultados = [r for r in ddgs.text(termo_busca, max_results=limite)]
-            if not resultados:
-                return "Nenhum resultado relevante encontrado publicamente."
-            
-            contexto = "Dados coletados na web:\n"
-            for i, r in enumerate(resultados, 1):
-                contexto += f" * {r['title']}: {r['body']}\n"
-            return contexto
-    except Exception as e:
-        print(f"⚠️ Falha ao consultar a internet: {e}")
-        return "Conexão com a rede indisponível."
-
-# transmitir emocoes
+ 
 @app.route('/status_json')
 def status_json():
     try:
-        # Abertura rápida e direta
         with open(ARQUIVO_ESTADO, "r") as f:
             estado = json.load(f)
-        
         emocoes = {
             "N": "Normal 😐", "R": "Raiva 😡", "T": "Triste 😢",
             "A": "Alegre ✨", "C": "Confusa 🤔", "M": "Medo 😰",
@@ -833,10 +865,27 @@ def status_json():
         return jsonify(estado)
     except:
         return "{}", 500
-
-# =================================================================
-#                      EXECUÇÃO DO SERVIDOR
-# =================================================================
+ 
+# ─────────────────────────────────────────────
+#  INTERNET SEARCH
+# ─────────────────────────────────────────────
+def pesquisar_na_internet(termo_busca, limite=3):
+    try:
+        with DDGS() as ddgs:
+            resultados = [r for r in ddgs.text(termo_busca, max_results=limite)]
+            if not resultados:
+                return "Nenhum resultado relevante encontrado publicamente."
+            contexto = "Dados coletados na web:\n"
+            for i, r in enumerate(resultados, 1):
+                contexto += f" * {r['title']}: {r['body']}\n"
+            return contexto
+    except Exception as e:
+        print(f"⚠️ Falha ao consultar a internet: {e}")
+        return "Conexão com a rede indisponível."
+ 
+# ─────────────────────────────────────────────
+#  EXECUÇÃO
+# ─────────────────────────────────────────────
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
