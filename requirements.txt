@@ -1,0 +1,12 @@
+groq
+pyserial
+Flask
+python-dotenv
+discord.py
+duckduckgo_search
+gunicorn
+supabase
+pyttsx3
+SpeechRecognition
+sounddevice
+cffi
