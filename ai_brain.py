@@ -280,6 +280,19 @@ def montar_system_prompt(usuario: dict, user_id: str) -> str:
     curiosidade = estado_yatra.get("curiosidade", 70)
     medo        = estado_yatra.get("medo", 10)
     humor       = estado_yatra.get("humor_atual", "N")
+
+    MAPA_HUMOR = {
+        "N": "neutra",
+        "A": "alegre",
+        "R": "irritada",
+        "T": "triste",
+        "C": "confusa",
+        "M": "com medo",
+        "X": "ansiosa",
+        "E": "empolgada",
+        "S": "com sono"
+    }
+    emocao_atual = MAPA_HUMOR.get(humor, "neutra")
  
     gostos_lista = carregar_gostos(user_id)
     gostos_texto = ", ".join(gostos_lista) if gostos_lista else "Você ainda está descobrindo do que gosta."
@@ -310,7 +323,7 @@ ESTADO ATUAL:
 📅 IDENTIDADE:
 - Idade: {idade_dias} dias
 - Energia: {energia}/100 | Curiosidade: {curiosidade}/100 | Medo: {medo}/100
-- Humor atual: {humor}
+- Código de humor: {humor}\n- Estado emocional obrigatório: {emocao_atual}
  
 👤 USUÁRIO ATUAL: {nome_exibido} (ID: {user_id})
 - Apelido: {apelido}
@@ -319,8 +332,23 @@ ESTADO ATUAL:
 🌐 SENSORES:
 {contexto_sensores}
  
-⚠️ REGRAS DE HUMOR:
-Finalize TODA resposta com a tag [HUMOR:X] (N, A, R, T, C, M, X, E, S).
+⚠️ SISTEMA DE HUMOR:
+
+O código de humor é controlado pelo sistema externo.
+
+Código atual: [{humor}]
+Emoção correspondente: {emocao_atual}
+
+Você DEVE agir de acordo com essa emoção.
+
+Você NÃO pode:
+- inventar outro humor;
+- dizer que está sentindo algo diferente;
+- trocar o código;
+- mudar seu estado emocional.
+
+Toda resposta DEVE terminar EXATAMENTE com:
+[HUMOR:{humor}]
 """
  
 # ─────────────────────────────────────────────
@@ -787,16 +815,12 @@ def enviar():
         )
         resposta_ia = response.choices[0].message.content
  
-        humor = 'N'
-        for h in ['R','T','A','C','M','X','E','S']:
-            if f"[HUMOR:{h}]" in resposta_ia:
-                humor = h
-                break
- 
+        humor = estado_yatra.get("humor_atual", "N")
+
         resposta_clean = resposta_ia
         for h in ['N','R','T','A','C','M','X','E','S']:
             resposta_clean = resposta_clean.replace(f"[HUMOR:{h}]", "")
-        resposta_clean = resposta_clean.strip()
+        resposta_clean = resposta_clean.strip()\n        resposta_clean += f" [HUMOR:{humor}]"
  
         salvar_no_supabase(user_id, plataforma, "assistant", resposta_clean)
  

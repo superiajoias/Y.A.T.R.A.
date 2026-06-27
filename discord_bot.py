@@ -50,9 +50,8 @@ async def on_message(message):
                 )
                 resposta_bruta = response.choices[0].message.content.strip()
 
-                # 1. Lógica de Humor
-                match_humor = re.search(r'\[HUMOR:([NARTCMXES])\]', resposta_bruta)
-                humor_detectado = match_humor.group(1) if match_humor else "N"
+                # 1. Lógica de Humor (controlado externamente)
+                humor_detectado = ai_brain.estado_yatra.get("humor_atual", "N")
                 texto_limpo = re.sub(r'\[HUMOR:[NARTCMXES]\]', '', resposta_bruta).strip()
 
                 # 2. Lógica de Memória de Vícios
