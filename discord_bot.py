@@ -1,7 +1,5 @@
 import os
-import sqlite3
 import discord
-import json
 import re
 from discord.ext import commands
 from groq import Groq
@@ -10,7 +8,6 @@ import ai_brain
 
 # Configurações
 load_dotenv()
-TOKEN_DISCORD = os.getenv("DISCORD_TOKEN")
 client_groq = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 intents = discord.Intents.default()
@@ -19,18 +16,10 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 EMOCOES_NICK = {
-    "N": "Normal 😐", "R": "Com Raiva 😡", "T": "Triste 😢",
-    "A": "Alegre ✨", "C": "Confusa 🤔", "M": "Com Medo 😰",
-    "X": "Ansiosa 😰", "E": "Empolgada 🚀", "S": "Com Sono 😴"
+    "N": "Normal 😐", "R": "Raiva 😡", "T": "Triste 😢",
+    "A": "Alegre ✨", "C": "Confusa 🤔", "M": "Medo 😰",
+    "X": "Ansiosa 😰", "E": "Empolgada 🚀", "S": "Sono 😴"
 }
-
-def salvar_no_sqlite(user_id, plataforma, role, mensagem):
-    conn = sqlite3.connect("memoria_yatra.db")
-    cursor = conn.cursor()
-    cursor.execute('INSERT INTO historico_conversas (user_id, plataforma, role, mensagem) VALUES (?, ?, ?, ?)', 
-                   (str(user_id), plataforma, role, mensagem))
-    conn.commit()
-    conn.close()
 
 @bot.event
 async def on_message(message):
@@ -38,7 +27,7 @@ async def on_message(message):
         return
 
     discord_id = str(message.author.id)
-    # Garante que o usuário existe no cérebro
+    # Garante que o usuário existe no Supabase
     perfil = ai_brain.obter_ou_criar_usuario(discord_id, message.author.display_name, plataforma="discord")
 
     if bot.user.mentioned_in(message) or isinstance(message.channel, discord.DMChannel):
@@ -46,10 +35,10 @@ async def on_message(message):
         
         async with message.channel.typing():
             try:
-                # Monta o prompt com o reconhecimento de criador do ai_brain
+                # Monta o prompt (que já contém a memória de vícios carregada)
                 system_prompt = ai_brain.montar_system_prompt(perfil, discord_id)
                 
-                # Puxa o histórico (ajuste para sua função real)
+                # Puxa histórico do Supabase
                 historico = [{"role": "system", "content": system_prompt}] 
                 historico += ai_brain.puxar_contexto_recente(discord_id)
                 historico.append({"role": "user", "content": pergunta})
@@ -61,27 +50,33 @@ async def on_message(message):
                 )
                 resposta_bruta = response.choices[0].message.content.strip()
 
-                # --- LÓGICA DE LIMPEZA E HUMOR ---
-                match = re.search(r'\[HUMOR:([NARTCMXES])\]', resposta_bruta)
-                humor_detectado = match.group(1) if match else "N"
+                # 1. Lógica de Humor
+                match_humor = re.search(r'\[HUMOR:([NARTCMXES])\]', resposta_bruta)
+                humor_detectado = match_humor.group(1) if match_humor else "N"
                 texto_limpo = re.sub(r'\[HUMOR:[NARTCMXES]\]', '', resposta_bruta).strip()
 
-                # Atualiza JSON de estado (para web e bot)
-                with open("estado_yatra.json", "r+") as f:
-                    estado = json.load(f)
-                    estado["humor_atual"] = humor_detectado
-                    f.seek(0)
-                    json.dump(estado, f, indent=2)
-                    f.truncate()
+                # 2. Lógica de Memória de Vícios
+                match_gosto = re.search(r'\[GOSTO:(.*?)\]', texto_limpo)
+                if match_gosto:
+                    item_viciado = match_gosto.group(1).strip()
+                    ai_brain.adicionar_gosto(discord_id, item_viciado)
+                    texto_limpo = re.sub(r'\[GOSTO:.*?\]', '', texto_limpo).strip()
+                    print(f"🧠 Nova obsessão da Yatra registrada: {item_viciado}")
 
-                # Atualiza estado interno da Yatra para o console
-                ai_brain.status_yatra["humor"] = EMOCOES_NICK.get(humor_detectado, "Normal 😐")
-                ai_brain.status_yatra["ultima_acao"] = f"Falou com {message.author.display_name}"
+                # 3. Atualiza Humor no Supabase
+                try:
+                    ai_brain.supabase.table("estado_yatra") \
+                        .update({"humor_atual": humor_detectado}) \
+                        .eq("id", 1) \
+                        .execute()
+                except Exception as e:
+                    print(f"Erro ao salvar humor: {e}")
 
-                # Salva no banco
-                salvar_no_sqlite(discord_id, "discord", "assistant", texto_limpo)
+                # 4. Salva histórico
+                ai_brain.registrar_mensagem(discord_id, "discord", "user", pergunta)
+                ai_brain.registrar_mensagem(discord_id, "discord", "assistant", texto_limpo)
 
-                # Muda o nick do bot no servidor
+                # 5. Atualiza Nick
                 if message.guild:
                     try:
                         novo_nick = f"Y.A.T.R.A. - {EMOCOES_NICK.get(humor_detectado, 'Normal 😐').split()[0]}"
