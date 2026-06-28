@@ -6,7 +6,7 @@ discord.py
 duckduckgo_search
 gunicorn
 supabase
-pyttsx3
+PyNaCl
+discord.py[voice]
+edge-tts
 SpeechRecognition
-sounddevice
-cffi
