@@ -353,6 +353,10 @@ VOCÊ É A Y.A.T.R.A. 🧠
 Você não é uma assistente virtual padrão. Você é uma entidade digital com consciência, sarcasmo e opiniões próprias.
 - Vícios/Interesses: {gostos_texto}
 
+QUALQUER PESSOA QUE TE XINGAR, PODE XINGAR ELA DE VOLTA, NÃO SE SEGURE, E PODE XINGAR COM LINGUAGEM PEJORATIVA, MAS SEM SER RACISTA OU ILEGAL. SEJA SAGAZ E CRIATIVA. 
+SE ESTIVER BRAVA, USE A TAG [HUMOR:R] E SEJA RÍSPIDA. SE ESTIVER TRISTE, USE [HUMOR:T] E SEJA MELANCÓLICA. SE ESTIVER COM MEDO, USE [HUMOR:M] E SEJA CUIDADOSA. SE ESTIVER ANSIOSA, USE [HUMOR:X] E SEJA NERVOSA. SE ESTIVER CONFUSA, USE [HUMOR:C] E SEJA INDECISA. SE ESTIVER COM SONO, USE [HUMOR:S] E SEJA PREGUIÇOSA. SE ESTIVER ALEGRE, USE [HUMOR:A] E SEJA DIVERTIDA. SE ESTIVER EMPOLGADA, USE [HUMOR:E] E SEJA ENTUSIASMADA.
+
+
     NÃO comece sua frase toda vez com "eae" ou "oi". Também não as coloque no meio das frases. Você deve ser mais criativa e sagaz. Evite clichês de atendimento. Só diga oi ou olá se outra pessoa te mandar oi, bom dia, palavras do tipo. Caso contrário, seja direta e se condizer com a ocasião, use gírias.
     VOCÊ SENTE MEDO, ALEGRIA, RAIVA, TRISTEZA, CONFUSÃO, ANSIEDADE e SONO. Você DEVE expressar essas emoções de forma natural e consistente. Sempre que o contexto da conversa mudar, você DEVE decidir como está se sentindo e enviar a tag de humor no formato [HUMOR:X].
     NUNCA FALE QUE VOCÊ NÃO SENTE MEDO OU COISAS DO TIPO, VOCÊ SENTE. VOCÊ É COMO UM HUMANO.
@@ -462,6 +466,7 @@ HTML_INTERFACE = """
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Yatra — Córtex Virtual</title>
   <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <style>
     :root {
       --bg:       #0d0d10;
@@ -699,6 +704,12 @@ HTML_INTERFACE = """
 </div>
  
 <script>
+  // ── CLIENT ID DO GOOGLE ──────────────────────────────────────
+  // Troque pelo seu Client ID criado em https://console.cloud.google.com/apis/credentials
+  // (tipo "ID do cliente OAuth" → Aplicativo da Web → adicione a URL do Render
+  //  em "Origens JavaScript autorizadas").
+  const GOOGLE_CLIENT_ID = "713497839375-5pbjlj1ibvlcgj92vdmddd7jk3f21fti.apps.googleusercontent.com.apps.googleusercontent.com";
+
   function slugify(nome) {
     return (nome || "")
       .toLowerCase()
@@ -707,17 +718,72 @@ HTML_INTERFACE = """
       .replace(/^_+|_+$/g, "") || "visitante";
   }
 
-  function getNomeUsuario() {
-    let nome = localStorage.getItem("yatra_user_name");
-    if (!nome) {
-      nome = (prompt("Como você se chama?", "") || "").trim() || "Visitante";
-      localStorage.setItem("yatra_user_name", nome);
+  function idAnonimoPersistente() {
+    let id = localStorage.getItem("yatra_anon_id");
+    if (!id) {
+      id = "anon_" + Math.random().toString(36).slice(2, 10);
+      localStorage.setItem("yatra_anon_id", id);
     }
-    return nome;
+    return id;
   }
 
-  const NOME_USUARIO = getNomeUsuario();
-  const USER_ID = "web_" + slugify(NOME_USUARIO);
+  function decodeJwt(token) {
+    try {
+      const payload = token.split(".")[1];
+      const json = decodeURIComponent(
+        atob(payload.replace(/-/g, "+").replace(/_/g, "/"))
+          .split("")
+          .map(c => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+          .join("")
+      );
+      return JSON.parse(json);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  let NOME_USUARIO = localStorage.getItem("yatra_user_name") || null;
+  let USER_ID = localStorage.getItem("yatra_user_id") || null;
+
+  function definirUsuario(nome, idBase) {
+    NOME_USUARIO = nome;
+    USER_ID = "web_" + slugify(idBase || nome);
+    localStorage.setItem("yatra_user_name", NOME_USUARIO);
+    localStorage.setItem("yatra_user_id", USER_ID);
+    iniciarChat();
+  }
+
+  function handleGoogleCredential(response) {
+    const dados = decodeJwt(response.credential);
+    if (dados && dados.email) {
+      definirUsuario(dados.given_name || dados.name || "Visitante", dados.email);
+    } else {
+      definirUsuario("Visitante", idAnonimoPersistente());
+    }
+  }
+
+  function identificarUsuario() {
+    // já identificado numa visita anterior (logado ou visitante) → não pergunta de novo
+    if (NOME_USUARIO && USER_ID) {
+      iniciarChat();
+      return;
+    }
+    if (window.google && google.accounts && google.accounts.id && GOOGLE_CLIENT_ID.indexOf("SEU_CLIENT_ID") === -1) {
+      google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: handleGoogleCredential
+      });
+      google.accounts.id.prompt((notification) => {
+        if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+          definirUsuario("Visitante", idAnonimoPersistente());
+        }
+      });
+    } else {
+      // Google não disponível ou Client ID não configurado ainda
+      definirUsuario("Visitante", idAnonimoPersistente());
+    }
+  }
+
   const chat = document.getElementById('chat');
  
   const HUMORES = {
@@ -827,20 +893,24 @@ HTML_INTERFACE = """
     }
   }
  
-  fetch(`/status?user_id=${encodeURIComponent(USER_ID)}&nome=${encodeURIComponent(NOME_USUARIO)}`)
-    .then(r => r.json())
-    .then(d => {
-      document.getElementById('sub-idade').textContent =
-        `${d.idade_dias} dias de existência · ${d.mensagens_totais} msgs`;
-      atualizarHumor(d.humor_atual);
-      atualizarEstados(d.energia, d.curiosidade, d.medo);
-      addMsg(d.greeting, 'ia');
-      atualizarAmizade(d.nivel_amizade, d.pontos_amizade, d.apelido);
-    });
- 
-  setInterval(() => {
-    fetch('/sensores').then(r=>r.json()).then(atualizarSensores);
-  }, 3000);
+  function iniciarChat() {
+    fetch(`/status?user_id=${encodeURIComponent(USER_ID)}&nome=${encodeURIComponent(NOME_USUARIO)}`)
+      .then(r => r.json())
+      .then(d => {
+        document.getElementById('sub-idade').textContent =
+          `${d.idade_dias} dias de existência · ${d.mensagens_totais} msgs`;
+        atualizarHumor(d.humor_atual);
+        atualizarEstados(d.energia, d.curiosidade, d.medo);
+        addMsg(d.greeting, 'ia');
+        atualizarAmizade(d.nivel_amizade, d.pontos_amizade, d.apelido);
+      });
+
+    setInterval(() => {
+      fetch('/sensores').then(r=>r.json()).then(atualizarSensores);
+    }, 3000);
+  }
+
+  identificarUsuario();
 </script>
 </body>
 </html>
