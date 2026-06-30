@@ -753,12 +753,18 @@ HTML_INTERFACE = """
     iniciarChat();
   }
 
-  function handleGoogleCredential(response) {
+function handleGoogleCredential(response) {
     const dados = decodeJwt(response.credential);
     if (dados && dados.email) {
-      definirUsuario(dados.given_name || dados.name || "Visitante", dados.email);
-    } else {
-      definirUsuario("Visitante", idAnonimoPersistente());
+      // Força a atualização do nome e ID
+      NOME_USUARIO = dados.given_name || dados.name || "Visitante";
+      USER_ID = "web_" + slugify(dados.email);
+      
+      localStorage.setItem("yatra_user_name", NOME_USUARIO);
+      localStorage.setItem("yatra_user_id", USER_ID);
+      
+      // Recarrega o estado inicial do chat com o novo nome
+      iniciarChat();
     }
   }
 
@@ -984,20 +990,14 @@ def enviar():
 
         resposta_ia = response.choices[0].message.content
 
-        # Regex aprimorado: busca a tag e garante captura, ignorando espaços extras
-        regex_humor = r'\[HUMOR:\s*([NARTCMXES])\s*\]'
-
-        # Tenta encontrar a tag
+# Novo Regex mais tolerante: aceita COM ou SEM colchetes
+        regex_humor = r'(?:\[)?HUMOR:\s*([NARTCMXES])(?:\s*\])?'
+        
         match = re.search(regex_humor, resposta_ia, re.IGNORECASE)
-
-        if match:
-            novo_humor = match.group(1).upper()
-            # Remove a tag do texto final
-            resposta_clean = re.sub(regex_humor, '', resposta_ia, flags=re.IGNORECASE).strip()
-        else:
-            # Mantém o humor anterior se não encontrar tag válida
-            novo_humor = estado_yatra.get("humor_atual", "N")
-            resposta_clean = resposta_ia.strip()
+        novo_humor = match.group(1).upper() if match else ai_brain.estado_yatra.get("humor_atual", "N")
+        
+        # Remove a tag (com ou sem colchetes) da resposta
+        resposta_clean = re.sub(regex_humor, '', resposta_ia, flags=re.IGNORECASE).strip()
 
         # Atualiza banco e estado
         try:
