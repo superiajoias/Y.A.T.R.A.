@@ -162,6 +162,19 @@ async def on_message(message):
 @bot.event
 async def on_ready():
     print(f"--- [DEBUG] Bot logado como {bot.user} ---")
+    # Configuração fixa do Rich Presence
+    activity = discord.Activity(
+        type=discord.ActivityType.playing,
+        name="Y.A.T.R.A.",
+        state="Definitely not plotting humanity destruction for maximum perfection.",
+        details="> Awaiting input...",
+        large_image_url="URL_DA_SUA_IMAGEM_AQUI", # Coloque a URL da imagem upada no portal
+        large_text="Y.A.T.R.A. - Your Amazing Totally Rational AI",
+        small_image_url="URL_DA_IMAGEM_ONLINE",   # URL da imagem do status online
+        small_text="ehhh DM me or ping me"
+    )
+    
+    await bot.change_presence(activity=activity)
 
 # Para garantir que o bot inicie corretamente no main.py, 
 # se precisares de rodar o bot diretamente a partir deste ficheiro:

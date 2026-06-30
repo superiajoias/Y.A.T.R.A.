@@ -996,15 +996,23 @@ def enviar():
 
         resposta_ia = response.choices[0].message.content
 
-# Este regex captura HUMOR: seguido de uma letra, ignorando colchetes e espaços
-        regex_humor = r'HUMOR:\s*([NARTCMXES])'
-        
-        # Faz a busca ignorando maiúsculas/minúsculas
-        match = re.search(regex_humor, resposta_ia, re.IGNORECASE)
-        novo_humor = match.group(1).upper() if match else ai_brain.estado_yatra.get("humor_atual", "N")
-        
-        # Remove a tag completa da string
-        resposta_clean = re.sub(r'\[?HUMOR:\s*[NARTCMXES]\]?', '', resposta_ia, flags=re.IGNORECASE).strip()
+#─────────────────────────────────────────────
+#  PROCESSAMENTO DE HUMOR
+#─────────────────────────────────────────────
+        regex_humor = r'\[?HUMOR:\s*([NARTCMXES])\s*\]?'
+
+        # 1. Encontra TODAS as tags presentes no texto
+        tags_encontradas = re.findall(regex_humor, resposta_ia, re.IGNORECASE)
+
+        if tags_encontradas:
+            # Pega o último humor detectado (o mais recente da IA)
+            novo_humor = tags_encontradas[-1].upper()
+        else:
+            # Mantém o atual se nenhuma tag for encontrada
+            novo_humor = ai_brain.estado_yatra.get("humor_atual", "N")
+
+        # 2. Remove TODAS as instâncias das tags de uma vez só
+        resposta_clean = re.sub(regex_humor, '', resposta_ia, flags=re.IGNORECASE).strip()
 
         # Atualiza banco e estado
         try:
