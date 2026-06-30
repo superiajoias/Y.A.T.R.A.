@@ -979,18 +979,25 @@ def enviar():
         response = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=historico_chamada,
-            temperature=0.75
+            temperature=0.8
         )
 
         resposta_ia = response.choices[0].message.content
 
-        # Extração do humor (aceita HUMOR:A ou [HUMOR:A], com ou sem colchetes)
-        regex_humor = r'(?:\[)?HUMOR:\s*([NARTCMXES])\s*(?:\])?'
-        match = re.search(regex_humor, resposta_ia)
-        novo_humor = match.group(1) if match else estado_yatra.get("humor_atual", "N")
-        
-        # Limpeza da resposta
-        resposta_clean = re.sub(regex_humor, '', resposta_ia).strip()
+        # Regex aprimorado: busca a tag e garante captura, ignorando espaços extras
+        regex_humor = r'\[HUMOR:\s*([NARTCMXES])\s*\]'
+
+        # Tenta encontrar a tag
+        match = re.search(regex_humor, resposta_ia, re.IGNORECASE)
+
+        if match:
+            novo_humor = match.group(1).upper()
+            # Remove a tag do texto final
+            resposta_clean = re.sub(regex_humor, '', resposta_ia, flags=re.IGNORECASE).strip()
+        else:
+            # Mantém o humor anterior se não encontrar tag válida
+            novo_humor = estado_yatra.get("humor_atual", "N")
+            resposta_clean = resposta_ia.strip()
 
         # Atualiza banco e estado
         try:
@@ -1061,7 +1068,7 @@ def status_json():
 # ─────────────────────────────────────────────
 #  INTERNET SEARCH
 # ─────────────────────────────────────────────
-def pesquisar_na_internet(termo_busca, limite=3):
+def pesquisar_na_internet(termo_busca, limite=10):
     try:
         with DDGS() as ddgs:
             resultados = [r for r in ddgs.text(termo_busca, max_results=limite)]
