@@ -708,7 +708,7 @@ HTML_INTERFACE = """
   // Troque pelo seu Client ID criado em https://console.cloud.google.com/apis/credentials
   // (tipo "ID do cliente OAuth" → Aplicativo da Web → adicione a URL do Render
   //  em "Origens JavaScript autorizadas").
-  const GOOGLE_CLIENT_ID = "713497839375-5pbjlj1ibvlcgj92vdmddd7jk3f21fti.apps.googleusercontent.com.apps.googleusercontent.com";
+  const GOOGLE_CLIENT_ID = "713497839375-5pbjlj1ibvlcgj92vdmddd7jk3f21fti.apps.googleusercontent.com";
 
   function slugify(nome) {
     return (nome || "")
@@ -768,20 +768,33 @@ HTML_INTERFACE = """
       iniciarChat();
       return;
     }
-    if (window.google && google.accounts && google.accounts.id && GOOGLE_CLIENT_ID.indexOf("SEU_CLIENT_ID") === -1) {
-      google.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID,
-        callback: handleGoogleCredential
-      });
-      google.accounts.id.prompt((notification) => {
-        if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-          definirUsuario("Visitante", idAnonimoPersistente());
-        }
-      });
-    } else {
-      // Google não disponível ou Client ID não configurado ainda
+    if (GOOGLE_CLIENT_ID.indexOf("SEU_CLIENT_ID") !== -1) {
+      // Client ID ainda não configurado
       definirUsuario("Visitante", idAnonimoPersistente());
+      return;
     }
+    // O script do Google carrega de forma assíncrona e pode ainda não
+    // estar pronto quando a página termina de renderizar — espera até
+    // 3s por ele antes de cair pro fallback "Visitante".
+    let tentativas = 0;
+    const esperarGoogle = setInterval(() => {
+      tentativas++;
+      if (window.google && google.accounts && google.accounts.id) {
+        clearInterval(esperarGoogle);
+        google.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          callback: handleGoogleCredential
+        });
+        google.accounts.id.prompt((notification) => {
+          if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+            definirUsuario("Visitante", idAnonimoPersistente());
+          }
+        });
+      } else if (tentativas >= 30) {
+        clearInterval(esperarGoogle);
+        definirUsuario("Visitante", idAnonimoPersistente());
+      }
+    }, 100);
   }
 
   const chat = document.getElementById('chat');
@@ -971,12 +984,13 @@ def enviar():
 
         resposta_ia = response.choices[0].message.content
 
-        # Extração do humor
-        match = re.search(r'\[HUMOR:\s*([NARTCMXES])\s*\]', resposta_ia)
+        # Extração do humor (aceita HUMOR:A ou [HUMOR:A], com ou sem colchetes)
+        regex_humor = r'(?:\[)?HUMOR:\s*([NARTCMXES])\s*(?:\])?'
+        match = re.search(regex_humor, resposta_ia)
         novo_humor = match.group(1) if match else estado_yatra.get("humor_atual", "N")
         
         # Limpeza da resposta
-        resposta_clean = re.sub(r'\[HUMOR:\s*[NARTCMXES]\s*\]', '', resposta_ia).strip()
+        resposta_clean = re.sub(regex_humor, '', resposta_ia).strip()
 
         # Atualiza banco e estado
         try:
