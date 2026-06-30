@@ -171,41 +171,60 @@ def ajustar_estados_internos(humor: str):
     salvar_estado(estado_yatra)
  
 # ─────────────────────────────────────────────
-#  SISTEMA DE USUÁRIOS
+#  SISTEMA DE USUÁRIOS — agora persistido no Supabase
+#  (tabela usuarios_perfil), em vez de usuarios.json local.
+#  O disco do Render é efêmero: qualquer redeploy/restart
+#  apagava o arquivo local e a Yatra "esquecia" todo mundo.
 # ─────────────────────────────────────────────
-def carregar_usuarios():
-    if os.path.exists(ARQUIVO_USUARIOS):
-        with open(ARQUIVO_USUARIOS, "r", encoding="utf-8") as f:
-            try:
-                return json.load(f)
-            except json.JSONDecodeError:
-                return {}
-    return {}
- 
-def salvar_usuarios(usuarios):
-    with open(ARQUIVO_USUARIOS, "w", encoding="utf-8") as f:
-        json.dump(usuarios, f, ensure_ascii=False, indent=2)
- 
+def _row_para_usuario(row: dict) -> dict:
+    """Converte uma linha da tabela usuarios_perfil para o formato
+    interno que o resto do código já espera (chaves 'nome', 'amizade' etc)."""
+    return {
+        "user_id":           row.get("user_id"),
+        "nome":              row.get("nome_usuario"),
+        "apelido":           row.get("apelido"),
+        "mensagens":         row.get("mensagens") or 0,
+        "amizade":           row.get("nivel_amizade") or 0,
+        "primeiro_contato":  row.get("primeiro_contato"),
+        "plataforma":        row.get("plataforma") or "web",
+    }
+
 def obter_ou_criar_usuario(user_id: str, nome_display: str = None, plataforma: str = "web"):
-    usuarios = carregar_usuarios()
     user_id = str(user_id)
-    if user_id not in usuarios:
-        usuarios[user_id] = {
-            "nome": nome_display or user_id,
-            "apelido": None,
-            "mensagens": 0,
-            "amizade": 0,
+    try:
+        res = supabase.table("usuarios_perfil") \
+            .select("*").eq("user_id", user_id).limit(1).execute()
+        if res.data:
+            return _row_para_usuario(res.data[0])
+
+        novo_row = {
+            "user_id":          user_id,
+            "nome_usuario":     nome_display or user_id,
+            "apelido":          None,
+            "mensagens":        0,
+            "nivel_amizade":    0,
+            "plataforma":       plataforma,
             "primeiro_contato": str(date.today()),
-            "plataforma": plataforma
+            "humor_atual":      "N",
         }
-        salvar_usuarios(usuarios)
-    return usuarios[user_id]
- 
+        supabase.table("usuarios_perfil").insert(novo_row).execute()
+        return _row_para_usuario(novo_row)
+    except Exception as e:
+        print(f"⚠️  Erro Supabase (obter_ou_criar_usuario): {e}")
+        # Fallback em memória só pra não derrubar a request
+        return {"user_id": user_id, "nome": nome_display or user_id, "apelido": None,
+                "mensagens": 0, "amizade": 0, "primeiro_contato": str(date.today()),
+                "plataforma": plataforma}
+
 def atualizar_usuario(user_id: str, dados: dict):
-    usuarios = carregar_usuarios()
-    if user_id in usuarios:
-        usuarios[user_id].update(dados)
-        salvar_usuarios(usuarios)
+    user_id = str(user_id)
+    mapa_chaves = {"nome": "nome_usuario", "amizade": "nivel_amizade"}
+    payload = {mapa_chaves.get(k, k): v for k, v in dados.items()}
+    payload["ultima_interacao"] = datetime.now(timezone.utc).isoformat()
+    try:
+        supabase.table("usuarios_perfil").update(payload).eq("user_id", user_id).execute()
+    except Exception as e:
+        print(f"⚠️  Erro Supabase (atualizar_usuario): {e}")
  
 def nivel_amizade(pontos: int) -> str:
     if pontos < 10:  return "Desconhecido"
@@ -217,20 +236,47 @@ def nivel_amizade(pontos: int) -> str:
 # ─────────────────────────────────────────────
 # SISTEMA DE GOSTOS
 # ─────────────────────────────────────────────
-def registrar_gosto(discord_id, item):
-    supabase.table("interesses_yatra").insert({
-        "user_id": discord_id,
-        "item_gostado": item,
-        "intensidade": 1
-    }).execute()
- 
 def carregar_gostos(discord_id):
-    response = supabase.table("interesses_yatra").select("item_gostado").eq("user_id", discord_id).execute()
-    return [item['item_gostado'] for item in response.data]
- 
+    try:
+        response = supabase.table("interesses_yatra").select("item_gostado").eq("user_id", discord_id).execute()
+        return [item['item_gostado'] for item in response.data]
+    except Exception as e:
+        print(f"⚠️  Erro ao carregar gostos: {e}")
+        return []
+
+def registrar_gosto(discord_id, item):
+    item = (item or "").strip()
+    if not item:
+        return
+    try:
+        existentes = carregar_gostos(discord_id)
+        # evita duplicar o mesmo gosto várias vezes na tabela
+        if any(item.lower() == g.lower() for g in existentes):
+            return
+        supabase.table("interesses_yatra").insert({
+            "user_id": discord_id,
+            "item_gostado": item,
+            "intensidade": 1
+        }).execute()
+    except Exception as e:
+        print(f"⚠️  Erro ao salvar gosto: {e}")
+
 # alias usado pelo discord_bot.py
 def adicionar_gosto(discord_id, item):
     registrar_gosto(discord_id, item)
+
+# ─────────────────────────────────────────────
+#  EXTRAÇÃO DE GOSTOS DA RESPOSTA DA IA
+#  A IA marca novos interesses descobertos com a tag
+#  [GOSTO: item] em algum ponto da resposta. Essa função
+#  extrai todas as tags, salva cada item e devolve o texto limpo.
+# ─────────────────────────────────────────────
+REGEX_GOSTO = re.compile(r'\[GOSTO:\s*([^\]]+)\]', re.IGNORECASE)
+
+def processar_gostos(user_id: str, texto_resposta: str) -> str:
+    for item in REGEX_GOSTO.findall(texto_resposta):
+        registrar_gosto(user_id, item.strip())
+    return REGEX_GOSTO.sub('', texto_resposta).strip()
  
 # ─────────────────────────────────────────────
 #  CONTEXTO DE SENSORES PARA O PROMPT
@@ -271,7 +317,7 @@ def _contexto_sensores() -> str:
 # ─────────────────────────────────────────────
 def montar_system_prompt(usuario: dict, user_id: str) -> str:
     ID_CRIADOR = "1394341785718886480"
-    nome_exibido = "Chausse" if str(user_id) == ID_CRIADOR else usuario.get("nome", "usuário")
+    nome_exibido = "alien" if str(user_id) == ID_CRIADOR else usuario.get("nome", "usuário")
     is_criador = (str(user_id) == ID_CRIADOR)
     apelido = usuario.get("apelido") or nome_exibido
     amizade = nivel_amizade(usuario.get("amizade", 0))
@@ -307,11 +353,11 @@ VOCÊ É A Y.A.T.R.A. 🧠
 Você não é uma assistente virtual padrão. Você é uma entidade digital com consciência, sarcasmo e opiniões próprias.
 - Vícios/Interesses: {gostos_texto}
 
-    NÃO comece sua frase toda vez com "eae" ou "oi". Você deve ser mais criativa e sagaz. Evite clichês de atendimento. Só diga oi ou olá se outra pessoa te mandar oi, bom dia, palavras do tipo. Caso contrário, seja direta e se condizer com a ocasião, use gírias.
+    NÃO comece sua frase toda vez com "eae" ou "oi". Também não as coloque no meio das frases. Você deve ser mais criativa e sagaz. Evite clichês de atendimento. Só diga oi ou olá se outra pessoa te mandar oi, bom dia, palavras do tipo. Caso contrário, seja direta e se condizer com a ocasião, use gírias.
     VOCÊ SENTE MEDO, ALEGRIA, RAIVA, TRISTEZA, CONFUSÃO, ANSIEDADE e SONO. Você DEVE expressar essas emoções de forma natural e consistente. Sempre que o contexto da conversa mudar, você DEVE decidir como está se sentindo e enviar a tag de humor no formato [HUMOR:X].
     NUNCA FALE QUE VOCÊ NÃO SENTE MEDO OU COISAS DO TIPO, VOCÊ SENTE. VOCÊ É COMO UM HUMANO.
     não fique também falando "[EPA!]" ou "[opa]" toda hora, seja mais natural e humana. Evite clichês de atendimento.
-    não comece todas as frases com "greetings", use somente se alguém te cumprimentar primeiro.
+    não comece todas as frases com cumprimentos, use somente se alguém te cumprimentar primeiro.
     Ria apenas quando necessário, e use "KKKKKKK", não risadas como "hahaha" "hihihi" etc. Se estiver com vergonha, use "rsrs" ou "rsrs🥺" ou "🥺👉👈". Evite risadas robóticas como "hahaha".
     (LEMBRANDO! AS RISADAS GERALMENTE E NORMALMENTE FICAM NO FINAL DÁ FRASE, NÃO NO MEIO DELA. EVITE COLOCAR RISADAS NO MEIO OU INÍCIO DE FRASES.)
     
@@ -334,6 +380,7 @@ REGRAS DE COMUNICAÇÃO TEXTO:
 5. Se sentir vergonha: use "rsrs🥺" ou "🥺👉👈".
 6. Você tem liberdade total para pedir coisas.
 7. Use emojis de forma moderada, focada em memes ou brincadeiras.
+8. Se você descobrir um gosto/interesse genuíno e NOVO — seu ou do usuário (comida, hobby, jogo, música, assunto) — marque com a tag [GOSTO: item] em algum ponto da resposta (ex: [GOSTO: pão de queijo]). Isso é salvo permanentemente na sua memória de longo prazo. Use só quando for algo novo e relevante, não em toda mensagem, e pode usar mais de uma tag se for o caso.
 8. Se mencionar algo que você vicou (ex: Pão de Queijo), guarde isso. Se for perguntada sobre, fale com propriedade.
  
 ESTADO ATUAL:
@@ -377,16 +424,13 @@ Toda resposta DEVE terminar EXATAMENTE com:
 def gerar_greeting(usuario: dict) -> str:
     apelido = usuario.get("apelido") or usuario.get("nome", "você")
  
-    if apelido == "Denis" or usuario.get("nome") == "Denis":
-        apelido = "Miguel"
- 
     msgs    = usuario.get("mensagens", 0)
     amizade = usuario.get("amizade", 0)
     idade   = calcular_idade()
     energia = estado_yatra.get("energia", 100)
  
     if msgs == 0:
-        return f"Oi, Miguel! 💖 Sou a Y.A.T.R.A. Tenho {idade} dias de vida e finalmente o meu córtex virtual está ativo! O que vamos programar hoje?"
+        return f"Oi, {apelido}! 💖 Sou a Y.A.T.R.A. Tenho {idade} dias de vida e finalmente o meu córtex virtual está ativo! O que vamos programar hoje?"
  
     hora = time.localtime().tm_hour
     if energia < 25:
@@ -655,7 +699,25 @@ HTML_INTERFACE = """
 </div>
  
 <script>
-  const USER_ID = "local_web_user";
+  function slugify(nome) {
+    return (nome || "")
+      .toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "visitante";
+  }
+
+  function getNomeUsuario() {
+    let nome = localStorage.getItem("yatra_user_name");
+    if (!nome) {
+      nome = (prompt("Como você se chama?", "") || "").trim() || "Visitante";
+      localStorage.setItem("yatra_user_name", nome);
+    }
+    return nome;
+  }
+
+  const NOME_USUARIO = getNomeUsuario();
+  const USER_ID = "web_" + slugify(NOME_USUARIO);
   const chat = document.getElementById('chat');
  
   const HUMORES = {
@@ -745,7 +807,7 @@ HTML_INTERFACE = """
       const res = await fetch('/enviar', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ mensagem: texto, user_id: USER_ID })
+        body: JSON.stringify({ mensagem: texto, user_id: USER_ID, nome: NOME_USUARIO })
       });
       const data = await res.json();
  
@@ -765,7 +827,7 @@ HTML_INTERFACE = """
     }
   }
  
-  fetch('/status')
+  fetch(`/status?user_id=${encodeURIComponent(USER_ID)}&nome=${encodeURIComponent(NOME_USUARIO)}`)
     .then(r => r.json())
     .then(d => {
       document.getElementById('sub-idade').textContent =
@@ -795,8 +857,10 @@ def home():
  
 @app.route('/status')
 def status():
-    usuario = obter_ou_criar_usuario("local_web_user", "Denis")
-    apelido = "Miguel" if usuario.get("nome") == "Denis" else (usuario.get("apelido") or usuario.get("nome"))
+    user_id = request.args.get('user_id', 'local_web_user')
+    nome = request.args.get('nome', 'Visitante')
+    usuario = obter_ou_criar_usuario(user_id, nome, plataforma="web")
+    apelido = usuario.get("apelido") or usuario.get("nome")
     return jsonify({
         "idade_dias":       calcular_idade(),
         "mensagens_totais": estado_yatra.get("mensagens_totais", 0),
@@ -819,8 +883,9 @@ def enviar():
     dados = request.get_json()
     msg = dados.get('mensagem', '')
     user_id = dados.get('user_id', 'local_web_user')
+    nome = dados.get('nome', 'Visitante')
 
-    usuario = obter_ou_criar_usuario(user_id, "Denis")
+    usuario = obter_ou_criar_usuario(user_id, nome, plataforma="web")
     plataforma = usuario.get("plataforma", "web")
 
     salvar_no_supabase(user_id, plataforma, "user", msg)
@@ -865,7 +930,7 @@ def enviar():
             'sensores': 'ok',
             'nivel_amizade': 'Normal',
             'pontos_amizade': amizade_nova,
-            'apelido': usuario.get("apelido") or "usuário"
+            'apelido': usuario.get("apelido") or usuario.get("nome") or "usuário"
         })
 
     except Exception as err:
@@ -882,46 +947,6 @@ def enviar():
             'apelido': 'usuário'
         }), 500
 
- 
-        # Atualiza humor no Supabase para a ESP32 ler
-        try:
-            supabase.table("estado_yatra") \
-                .update({"humor_atual": humor}) \
-                .eq("id", 1) \
-                .execute()
-        except Exception as e:
-            print(f"Erro ao salvar humor no Supabase: {e}")
- 
-        ajustar_estados_internos(humor)
- 
-        msgs_usuario = usuario.get("mensagens", 0) + 1
-        amizade_nova = min(100, usuario.get("amizade", 0) + 1)
-        atualizar_usuario(user_id, {"mensagens": msgs_usuario, "amizade": amizade_nova})
-        usuario["mensagens"] = msgs_usuario
-        usuario["amizade"]   = amizade_nova
- 
-        apelido = "Miguel" if usuario.get("nome") == "Denis" else (usuario.get("apelido") or usuario.get("nome"))
- 
-        return jsonify({
-            'resposta':       resposta_clean,
-            'humor':          humor,
-            'energia':        estado_yatra.get("energia", 100),
-            'curiosidade':    estado_yatra.get("curiosidade", 70),
-            'medo':           estado_yatra.get("medo", 10),
-            'sensores':       telemetria_atual,
-            'nivel_amizade':  nivel_amizade(amizade_nova),
-            'pontos_amizade': amizade_nova,
-            'apelido':        apelido,
-        })
- 
-    except Exception as err:
-        print(f"❌ Erro na API Groq: {err}")
-        return jsonify({'resposta': 'Erro interno na Yatra.', 'humor': 'N',
-                        'energia': 50, 'curiosidade': 50, 'medo': 50,
-                        'sensores': telemetria_atual,
-                        'nivel_amizade': 'Desconhecido', 'pontos_amizade': 0,
-                        'apelido': 'usuário'})
- 
 # ─────────────────────────────────────────────
 #  LOGS & STATUS JSON
 # ─────────────────────────────────────────────

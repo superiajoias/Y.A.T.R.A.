@@ -108,6 +108,9 @@ def enviar():
         novo_humor  = match.group(1) if match else ai_brain.estado_yatra.get("humor_atual", "N")
         resposta_clean = re.sub(r'\[HUMOR:\s*[NARTCMXES]\s*\]', '', resposta_ia).strip()
 
+        # 5b. Extrai e salva novos interesses marcados com [GOSTO: item]
+        resposta_clean = ai_brain.processar_gostos(user_id, resposta_clean)
+
         # 6. Atualiza humor no Supabase (para a ESP32 ler)
         try:
             ai_brain.supabase.table("estado_yatra") \

@@ -1,11 +1,13 @@
 import os
 import discord
 import re
+import aiohttp
 from discord.ext import commands
 from groq import Groq
 from dotenv import load_dotenv
 import ai_brain
 import voice_handler
+import stt_handler
 
 # ─────────────────────────────────────────────
 # CONFIG
@@ -121,6 +123,9 @@ async def on_message(message):
             
             novo_humor = match.group(1) if match else "N"
             texto_limpo = re.sub(regex_humor, '', resposta_bruta).strip()
+
+            # Extrai e salva novos interesses marcados com [GOSTO: item]
+            texto_limpo = ai_brain.processar_gostos(discord_id, texto_limpo)
 
             # REGISTRA NO SUPABASE
             ai_brain.registrar_mensagem(discord_id, "discord", "user", pergunta_final)
