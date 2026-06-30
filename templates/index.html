@@ -2,7 +2,6 @@
 <html lang="pt-br">
 <head>
   <meta charset="UTF-8">
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Yatra — Córtex Virtual</title>
   <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Inter:wght@400;600&display=swap" rel="stylesheet">
@@ -268,22 +267,8 @@
   /* ─────────────────────────────────────────────────────
      CONSTANTES
   ───────────────────────────────────────────────────── */
-  function handleCredentialResponse(response) {
-    const data = JSON.parse(atob(response.credential.split('.')[1]));
-    // Agora o USER_ID é o seu e-mail e o nome vem do Google
-    window.USER_ID = "web_" + data.email;
-    localStorage.setItem("yatra_user_name", data.given_name);
-    
-    // Atualiza a interface
-    document.getElementById('info-amizade').textContent = `👤 ${data.given_name} | 🤝 ...`;
-  }
-</script>
-
-<div id="g_id_onload"
-     data-client_id="713497839375-5pbjlj1ibvlcgj92vdmddd7jk3f21fti.apps.googleusercontent.com"
-     data-callback="handleCredentialResponse"
-     data-auto_prompt="true">
-</div>
+  const USER_ID = "local_web_user";
+  const chat    = document.getElementById('chat');
 
   /* Mapa de humores → visual */
   const HUMORES = {
