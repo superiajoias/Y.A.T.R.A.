@@ -756,14 +756,20 @@ HTML_INTERFACE = """
 function handleGoogleCredential(response) {
     const dados = decodeJwt(response.credential);
     if (dados && dados.email) {
-      // Força a atualização do nome e ID
-      NOME_USUARIO = dados.given_name || dados.name || "Visitante";
-      USER_ID = "web_" + slugify(dados.email);
+      const nomeNovo = dados.given_name || dados.name || "Visitante";
+      const idNovo = "web_" + slugify(dados.email);
       
-      localStorage.setItem("yatra_user_name", NOME_USUARIO);
-      localStorage.setItem("yatra_user_id", USER_ID);
+      // Limpa os dados antigos para garantir a atualização
+      localStorage.removeItem("yatra_user_name");
+      localStorage.removeItem("yatra_user_id");
       
-      // Recarrega o estado inicial do chat com o novo nome
+      // Salva os novos dados
+      localStorage.setItem("yatra_user_name", nomeNovo);
+      localStorage.setItem("yatra_user_id", idNovo);
+      
+      // Atualiza variáveis globais e recarrega a conversa
+      NOME_USUARIO = nomeNovo;
+      USER_ID = idNovo;
       iniciarChat();
     }
   }
@@ -990,14 +996,15 @@ def enviar():
 
         resposta_ia = response.choices[0].message.content
 
-# Novo Regex mais tolerante: aceita COM ou SEM colchetes
-        regex_humor = r'(?:\[)?HUMOR:\s*([NARTCMXES])(?:\s*\])?'
+# Este regex captura HUMOR: seguido de uma letra, ignorando colchetes e espaços
+        regex_humor = r'HUMOR:\s*([NARTCMXES])'
         
+        # Faz a busca ignorando maiúsculas/minúsculas
         match = re.search(regex_humor, resposta_ia, re.IGNORECASE)
         novo_humor = match.group(1).upper() if match else ai_brain.estado_yatra.get("humor_atual", "N")
         
-        # Remove a tag (com ou sem colchetes) da resposta
-        resposta_clean = re.sub(regex_humor, '', resposta_ia, flags=re.IGNORECASE).strip()
+        # Remove a tag completa da string
+        resposta_clean = re.sub(r'\[?HUMOR:\s*[NARTCMXES]\]?', '', resposta_ia, flags=re.IGNORECASE).strip()
 
         # Atualiza banco e estado
         try:
