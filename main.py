@@ -103,10 +103,24 @@ def enviar():
         )
         resposta_ia = response.choices[0].message.content
 
-        # 5. Extrai tag de humor e limpa o texto
-        match       = re.search(r'\[HUMOR:\s*([NARTCMXES])\s*\]', resposta_ia)
-        novo_humor  = match.group(1) if match else ai_brain.estado_yatra.get("humor_atual", "N")
-        resposta_clean = re.sub(r'\[HUMOR:\s*[NARTCMXES]\s*\]', '', resposta_ia).strip()
+        # 5. Extrai tag de humor e limpa o texto de forma robusta
+        # Pega a tag com ou sem colchetes e ignora maiúsculas/minúsculas
+        regex_humor = r'\[?HUMOR:\s*([a-zA-Z])\s*\]?'
+        
+        # Encontra todas as tags geradas na resposta
+        tags_encontradas = re.findall(regex_humor, resposta_ia, flags=re.IGNORECASE)
+        
+        if tags_encontradas:
+            # Pega sempre a última tag gerada (caso ela mude de ideia no meio da frase)
+            novo_humor = tags_encontradas[-1].upper()
+            # Garante que a letra existe no seu sistema, se não, volta pro Neutro
+            if novo_humor not in ['N', 'A', 'R', 'T', 'C', 'M', 'X', 'E', 'S']:
+                novo_humor = ai_brain.estado_yatra.get("humor_atual", "N")
+        else:
+            novo_humor = ai_brain.estado_yatra.get("humor_atual", "N")
+
+        # Limpa o texto varrendo qualquer vestígio da tag antes de enviar ao usuário
+        resposta_clean = re.sub(regex_humor, '', resposta_ia, flags=re.IGNORECASE).strip()
 
         # 5b. Extrai e salva novos interesses marcados com [GOSTO: item]
         resposta_clean = ai_brain.processar_gostos(user_id, resposta_clean)
