@@ -2,11 +2,12 @@ groq
 pyserial
 Flask
 python-dotenv
-discord.py
+discord.py[voice]
 duckduckgo_search
 gunicorn
 supabase
 PyNaCl
-discord.py[voice]
 edge-tts
 SpeechRecognition
+bcrypt
+aiohttp

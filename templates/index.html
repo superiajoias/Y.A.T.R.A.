@@ -17,6 +17,8 @@
       --user-bg:  #7c3aed;
       --ia-bg:    #1e1e26;
       --radius:   14px;
+      --green:    #22c55e;
+      --red:      #ef4444;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -30,7 +32,7 @@
       flex-direction: column;
     }
 
-    /* ── HEADER ─────────────────────────── */
+    /* ── HEADER ──────────────────────────────────────────────── */
     header {
       display: flex;
       align-items: center;
@@ -41,12 +43,22 @@
       gap: 12px;
       flex-shrink: 0;
     }
-
-      <div id="btn-login" style="margin: 10px; cursor: pointer; color: var(--accent);">
-          <div class="g_id_signin" data-type="standard" data-shape="pill"></div>
-      </div>
-
     .header-left { display: flex; align-items: center; gap: 12px; }
+
+    /* botão de auth no header */
+    #btn-auth-header {
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-family: 'Share Tech Mono', monospace;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--accent2);
+      transition: all .2s;
+      white-space: nowrap;
+    }
+    #btn-auth-header:hover { background: var(--border); }
 
     .oled-preview {
       width: 52px; height: 28px;
@@ -55,148 +67,175 @@
       border-radius: 4px;
       display: flex; align-items: center; justify-content: center;
       font-family: 'Share Tech Mono', monospace;
-      font-size: 11px;
-      color: #fff;
+      font-size: 11px; color: #fff;
       letter-spacing: 2px;
       transition: color 0.4s;
     }
-
     .titulo    { font-size: 15px; font-weight: 600; letter-spacing: .5px; }
     .subtitulo { font-size: 11px; color: var(--muted); font-family: 'Share Tech Mono', monospace; }
 
     #badge-humor {
       padding: 6px 14px;
       border-radius: 20px;
-      font-size: 12px;
-      font-weight: 600;
+      font-size: 12px; font-weight: 600;
       font-family: 'Share Tech Mono', monospace;
-      background: var(--border);
-      color: var(--text);
-      transition: all .35s ease;
-      white-space: nowrap;
+      background: var(--border); color: var(--text);
+      transition: all .35s ease; white-space: nowrap;
     }
 
-    /* ── BARRA DE SENSORES ───────────────── */
+    /* ── SENSORES ────────────────────────────────────────────── */
     #barra-sensores {
-      display: flex;
-      gap: 18px;
+      display: flex; gap: 18px;
       padding: 7px 20px;
       background: #111115;
       border-bottom: 1px solid var(--border);
       font-family: 'Share Tech Mono', monospace;
-      font-size: 11px;
-      color: var(--muted);
-      flex-shrink: 0;
-      overflow-x: auto;
+      font-size: 11px; color: var(--muted);
+      flex-shrink: 0; overflow-x: auto;
     }
     #barra-sensores span { white-space: nowrap; }
     #barra-sensores b    { color: var(--accent2); }
 
-    /* ── BARRA DE ESTADOS INTERNOS ───────── */
+    /* ── ESTADOS INTERNOS ────────────────────────────────────── */
     #barra-estados {
-      display: flex;
-      gap: 14px;
+      display: flex; gap: 14px;
       padding: 7px 20px;
       background: var(--surface);
       border-bottom: 1px solid var(--border);
-      font-size: 11px;
-      color: var(--muted);
-      flex-shrink: 0;
-      align-items: center;
+      font-size: 11px; color: var(--muted);
+      flex-shrink: 0; align-items: center;
     }
     .estado-item { display: flex; align-items: center; gap: 6px; }
-    .barra-mini {
-      width: 60px; height: 5px;
-      background: var(--border);
-      border-radius: 3px;
-      overflow: hidden;
-    }
+    .barra-mini  { width: 60px; height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; }
     .barra-mini-fill { height: 100%; border-radius: 3px; transition: width .5s; }
 
-    /* ── CHAT ────────────────────────────── */
+    /* ── CHAT ────────────────────────────────────────────────── */
     #chat {
-      flex: 1;
-      overflow-y: auto;
+      flex: 1; overflow-y: auto;
       padding: 20px 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
+      display: flex; flex-direction: column; gap: 14px;
       scroll-behavior: smooth;
     }
-
     .msg {
       max-width: 72%;
       padding: 11px 16px;
       border-radius: var(--radius);
-      line-height: 1.55;
-      font-size: 14.5px;
+      line-height: 1.55; font-size: 14.5px;
       animation: fadeUp .2s ease;
     }
     @keyframes fadeUp {
       from { opacity: 0; transform: translateY(6px); }
       to   { opacity: 1; transform: translateY(0);   }
     }
+    .msg.user    { background: var(--user-bg); align-self: flex-end;  border-bottom-right-radius: 3px; }
+    .msg.ia      { background: var(--ia-bg);   align-self: flex-start; border-bottom-left-radius: 3px; border: 1px solid var(--border); }
+    .msg.typing  { opacity: .6; font-style: italic; }
 
-    .msg.user {
-      background: var(--user-bg);
-      align-self: flex-end;
-      border-bottom-right-radius: 3px;
-    }
-    .msg.ia {
-      background: var(--ia-bg);
-      align-self: flex-start;
-      border-bottom-left-radius: 3px;
-      border: 1px solid var(--border);
-    }
-    .msg.typing { opacity: .6; font-style: italic; }
-
-    /* ── INPUT ───────────────────────────── */
+    /* ── INPUT ───────────────────────────────────────────────── */
     #input-area {
-      display: flex;
-      gap: 10px;
+      display: flex; gap: 10px;
       padding: 14px 16px;
       background: var(--surface);
       border-top: 1px solid var(--border);
       flex-shrink: 0;
     }
-
     #campo {
-      flex: 1;
-      padding: 12px 16px;
+      flex: 1; padding: 12px 16px;
       background: #111115;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      color: var(--text);
-      font-size: 14px;
-      font-family: 'Inter', sans-serif;
-      outline: none;
-      transition: border-color .2s;
+      border: 1px solid var(--border); border-radius: 10px;
+      color: var(--text); font-size: 14px; font-family: 'Inter', sans-serif;
+      outline: none; transition: border-color .2s;
     }
     #campo:focus { border-color: var(--accent); }
-
     #btn-enviar {
-      padding: 12px 22px;
-      background: var(--accent);
-      color: #fff;
-      border: none;
-      border-radius: 10px;
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background .2s, transform .1s;
+      padding: 12px 22px; background: var(--accent);
+      color: #fff; border: none; border-radius: 10px;
+      font-size: 14px; font-weight: 600;
+      cursor: pointer; transition: background .2s, transform .1s;
     }
     #btn-enviar:hover  { background: #6d28d9; }
     #btn-enviar:active { transform: scale(.97); }
 
     #info-amizade {
-      font-size: 11px;
-      color: var(--muted);
+      font-size: 11px; color: var(--muted);
       padding: 0 20px 8px;
-      font-family: 'Share Tech Mono', monospace;
-      flex-shrink: 0;
+      font-family: 'Share Tech Mono', monospace; flex-shrink: 0;
     }
 
-    /* ── SCROLLBAR ───────────────────────── */
+    /* ── MODAL DE AUTH ───────────────────────────────────────── */
+    #modal-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.7);
+      z-index: 100;
+      align-items: center; justify-content: center;
+    }
+    #modal-overlay.ativo { display: flex; }
+
+    #modal-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 32px 28px;
+      width: min(420px, 92vw);
+      display: flex; flex-direction: column; gap: 16px;
+    }
+    #modal-box h2 { font-size: 17px; font-weight: 600; }
+    #modal-box p  { font-size: 12px; color: var(--muted); }
+
+    .auth-tabs {
+      display: flex; gap: 4px;
+      background: var(--bg);
+      border-radius: 10px; padding: 4px;
+    }
+    .auth-tab {
+      flex: 1; padding: 8px;
+      text-align: center; font-size: 13px; font-weight: 600;
+      border-radius: 8px; cursor: pointer;
+      border: none; background: transparent; color: var(--muted);
+      transition: all .2s;
+    }
+    .auth-tab.ativo { background: var(--accent); color: #fff; }
+
+    .auth-form { display: flex; flex-direction: column; gap: 10px; }
+    .auth-form input {
+      padding: 11px 14px;
+      background: #111115;
+      border: 1px solid var(--border); border-radius: 10px;
+      color: var(--text); font-size: 14px; outline: none;
+      transition: border-color .2s;
+    }
+    .auth-form input:focus { border-color: var(--accent); }
+    .auth-form input::placeholder { color: var(--muted); }
+
+    .btn-auth-submit {
+      padding: 12px;
+      background: var(--accent); color: #fff;
+      border: none; border-radius: 10px;
+      font-size: 14px; font-weight: 600; cursor: pointer;
+      transition: background .2s;
+    }
+    .btn-auth-submit:hover { background: #6d28d9; }
+
+    .btn-auth-skip {
+      padding: 10px;
+      background: transparent;
+      border: 1px solid var(--border); border-radius: 10px;
+      color: var(--muted); font-size: 13px; cursor: pointer;
+      transition: all .2s;
+    }
+    .btn-auth-skip:hover { border-color: var(--accent2); color: var(--accent2); }
+
+    #auth-erro {
+      font-size: 12px; color: var(--red); min-height: 16px;
+      text-align: center;
+    }
+    #auth-sucesso {
+      font-size: 12px; color: var(--green); min-height: 16px;
+      text-align: center;
+    }
+
+    /* ── SCROLLBAR ───────────────────────────────────────────── */
     ::-webkit-scrollbar { width: 5px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
@@ -204,7 +243,44 @@
 </head>
 <body>
 
-<!-- ── HEADER ──────────────────────────────────────────── -->
+<!-- ── MODAL DE AUTH ─────────────────────────────────────────────────────── -->
+<div id="modal-overlay">
+  <div id="modal-box">
+    <h2>👾 Y.A.T.R.A.</h2>
+    <p>Entre com uma conta para salvar seu histórico permanentemente,
+       ou continue como visitante (sessão temporária).</p>
+
+    <!-- Abas Login / Cadastro -->
+    <div class="auth-tabs">
+      <button class="auth-tab ativo" onclick="trocarAba('login')">Entrar</button>
+      <button class="auth-tab"       onclick="trocarAba('cadastro')">Cadastrar</button>
+    </div>
+
+    <!-- Formulário Login -->
+    <div class="auth-form" id="form-login">
+      <input type="email"    id="login-email" placeholder="seu@email.com" autocomplete="email">
+      <input type="password" id="login-senha" placeholder="Senha"         autocomplete="current-password">
+      <div id="auth-erro"></div>
+      <div id="auth-sucesso"></div>
+      <button class="btn-auth-submit" onclick="fazerLogin()">Entrar</button>
+      <button class="btn-auth-skip"   onclick="continuarComoVisitante()">Continuar sem conta →</button>
+    </div>
+
+    <!-- Formulário Cadastro -->
+    <div class="auth-form" id="form-cadastro" style="display:none">
+      <input type="text"     id="cad-nome"  placeholder="Seu nome"        autocomplete="name">
+      <input type="email"    id="cad-email" placeholder="seu@email.com"   autocomplete="email">
+      <input type="password" id="cad-senha" placeholder="Senha (mín. 6 caracteres)"
+             autocomplete="new-password">
+      <div id="auth-erro-cad"></div>
+      <div id="auth-sucesso-cad"></div>
+      <button class="btn-auth-submit" onclick="fazerCadastro()">Criar conta</button>
+      <button class="btn-auth-skip"   onclick="continuarComoVisitante()">Continuar sem conta →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── HEADER ────────────────────────────────────────────────────────────── -->
 <header>
   <div class="header-left">
     <div class="oled-preview" id="oled-face">o o</div>
@@ -213,50 +289,48 @@
       <div class="subtitulo" id="sub-idade">carregando...</div>
     </div>
   </div>
-  <div id="badge-humor">😐 NEUTRO</div>
+  <!-- Botão dinâmico: mostra "Entrar" ou nome do usuário + "Sair" -->
+  <div style="display:flex;align-items:center;gap:8px">
+    <button id="btn-auth-header" onclick="abrirModal()">⚡ Entrar</button>
+    <div id="badge-humor">😐 NEUTRO</div>
+  </div>
 </header>
 
-<!-- ── BARRA DE SENSORES ───────────────────────────────── -->
+<!-- ── BARRA DE SENSORES ────────────────────────────────────────────────── -->
 <div id="barra-sensores">
   <span>🌡️ Temp: <b id="s-temp">--</b>°C</span>
   <span>💧 Umid: <b id="s-umid">--</b>%</span>
   <span>📏 Dist: <b id="s-dist">--</b>cm</span>
-  <span id="lux-wrap">💡 Luz: <b id="s-lux">--</b>%</span>
-  <span id="som-wrap">🔊 <b id="s-som">--</b></span>
-  <span id="mov-wrap">📳 <b id="s-mov">--</b></span>
+  <span>💡 Luz: <b id="s-lux">--</b>%</span>
+  <span>🔊 <b id="s-som">--</b></span>
+  <span>📳 <b id="s-mov">--</b></span>
   <span id="esp-status">🔴 ESP32 offline</span>
 </div>
 
-<!-- ── BARRA DE ESTADOS INTERNOS ───────────────────────── -->
+<!-- ── BARRA DE ESTADOS ──────────────────────────────────────────────────── -->
 <div id="barra-estados">
   <div class="estado-item">
     ⚡ Energia
-    <div class="barra-mini">
-      <div class="barra-mini-fill" id="b-energia" style="background:#a78bfa;width:100%"></div>
-    </div>
+    <div class="barra-mini"><div class="barra-mini-fill" id="b-energia"    style="background:#a78bfa;width:100%"></div></div>
   </div>
   <div class="estado-item">
     🔍 Curiosidade
-    <div class="barra-mini">
-      <div class="barra-mini-fill" id="b-curiosidade" style="background:#34d399;width:70%"></div>
-    </div>
+    <div class="barra-mini"><div class="barra-mini-fill" id="b-curiosidade" style="background:#34d399;width:70%"></div></div>
   </div>
   <div class="estado-item">
     😰 Medo
-    <div class="barra-mini">
-      <div class="barra-mini-fill" id="b-medo" style="background:#f87171;width:10%"></div>
-    </div>
+    <div class="barra-mini"><div class="barra-mini-fill" id="b-medo"       style="background:#f87171;width:10%"></div></div>
   </div>
   <div class="estado-item" style="margin-left:auto">
     🤝 <span id="nivel-amizade">Desconhecido</span>
   </div>
 </div>
 
-<!-- ── CHAT ────────────────────────────────────────────── -->
+<!-- ── CHAT ──────────────────────────────────────────────────────────────── -->
 <div id="chat"></div>
 <div id="info-amizade"></div>
 
-<!-- ── INPUT ───────────────────────────────────────────── -->
+<!-- ── INPUT ─────────────────────────────────────────────────────────────── -->
 <div id="input-area">
   <input id="campo" type="text" placeholder="Fale com a Yatra..."
          onkeydown="if(event.key==='Enter') enviar()">
@@ -264,147 +338,219 @@
 </div>
 
 <script>
-  /* ─────────────────────────────────────────────────────
-     CONSTANTES
-  ───────────────────────────────────────────────────── */
-  const USER_ID = "local_web_user";
-  const chat    = document.getElementById('chat');
+/* ═══════════════════════════════════════════════════════════════════════════
+   SESSÃO
+   • O user_id agora vive no COOKIE DE SESSÃO do Flask (lado servidor).
+   • O JS não gerencia mais user_id em localStorage.
+   • /me retorna quem está logado; /enviar usa a sessão do cookie.
+   ═══════════════════════════════════════════════════════════════════════════ */
 
-  /* Mapa de humores → visual */
-  const HUMORES = {
-    N: { emoji:'😐', label:'NEUTRO',    bg:'#2a2a32', cor:'#e8e8f0', face:'o o'  },
-    A: { emoji:'😁', label:'ALEGRIA',   bg:'#166534', cor:'#bbf7d0', face:':D'   },
-    R: { emoji:'😡', label:'RAIVA',     bg:'#7f1d1d', cor:'#fecaca', face:'>:c'  },
-    T: { emoji:'😢', label:'TRISTEZA',  bg:'#1e3a5f', cor:'#bfdbfe', face:':c'   },
-    C: { emoji:'🌀', label:'CONFUSA',   bg:'#3b0764', cor:'#e9d5ff', face:'OwO'  },
-    M: { emoji:'😱', label:'MEDO',      bg:'#713f12', cor:'#fef08a', face:';w;'  },
-    X: { emoji:'😬', label:'ANSIOSA',   bg:'#0c4a6e', cor:'#bae6fd', face:'o_o'  },
-    E: { emoji:'🤩', label:'EMPOLGADA', bg:'#7c2d12', cor:'#fed7aa', face:'^w^'  },
-    S: { emoji:'😴', label:'SONO',      bg:'#1e1b4b', cor:'#c7d2fe', face:'-w-'  },
-  };
+const chat = document.getElementById('chat');
 
-  /* ─────────────────────────────────────────────────────
-     HELPERS DE UI
-  ───────────────────────────────────────────────────── */
-  function addMsg(texto, tipo) {
-    const div = document.createElement('div');
-    div.className = `msg ${tipo}`;
-    div.textContent = texto;
-    chat.appendChild(div);
-    chat.scrollTop = chat.scrollHeight;
-    return div;
+const HUMORES = {
+  N: { emoji:'😐', label:'NEUTRO',    bg:'#2a2a32', cor:'#e8e8f0', face:'o o'  },
+  A: { emoji:'😁', label:'ALEGRIA',   bg:'#166534', cor:'#bbf7d0', face:':D'   },
+  R: { emoji:'😡', label:'RAIVA',     bg:'#7f1d1d', cor:'#fecaca', face:'>:c'  },
+  T: { emoji:'😢', label:'TRISTEZA',  bg:'#1e3a5f', cor:'#bfdbfe', face:':c'   },
+  C: { emoji:'🌀', label:'CONFUSA',   bg:'#3b0764', cor:'#e9d5ff', face:'OwO'  },
+  M: { emoji:'😱', label:'MEDO',      bg:'#713f12', cor:'#fef08a', face:';w;'  },
+  X: { emoji:'😬', label:'ANSIOSA',   bg:'#0c4a6e', cor:'#bae6fd', face:'o_o'  },
+  E: { emoji:'🤩', label:'EMPOLGADA', bg:'#7c2d12', cor:'#fed7aa', face:'^w^'  },
+  S: { emoji:'😴', label:'SONO',      bg:'#1e1b4b', cor:'#c7d2fe', face:'-w-'  },
+};
+
+/* ── UI helpers ─────────────────────────────────────────────────────────── */
+function addMsg(texto, tipo) {
+  const div = document.createElement('div');
+  div.className   = `msg ${tipo}`;
+  div.textContent = texto;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+  return div;
+}
+
+function atualizarHumor(h) {
+  const info  = HUMORES[h] || HUMORES['N'];
+  const badge = document.getElementById('badge-humor');
+  badge.textContent      = `${info.emoji} ${info.label}`;
+  badge.style.background = info.bg;
+  badge.style.color      = info.cor;
+  const oled = document.getElementById('oled-face');
+  oled.textContent = info.face;
+  oled.style.color = info.cor;
+}
+
+function atualizarEstados(e, c, m) {
+  document.getElementById('b-energia').style.width     = (e ?? 100) + '%';
+  document.getElementById('b-curiosidade').style.width = (c ?? 70)  + '%';
+  document.getElementById('b-medo').style.width        = (m ?? 10)  + '%';
+}
+
+function atualizarSensores(dados) {
+  if (!dados) return;
+  if (dados.temp != null) document.getElementById('s-temp').textContent = Number(dados.temp).toFixed(1);
+  if (dados.umid != null) document.getElementById('s-umid').textContent = Math.round(dados.umid);
+  if (dados.dist != null) document.getElementById('s-dist').textContent = Math.round(dados.dist);
+  if (dados.lux  != null) document.getElementById('s-lux').textContent  = dados.lux;
+
+  const somEl = document.getElementById('s-som');
+  somEl.textContent = dados.som ? 'som!' : 'silêncio';
+  somEl.style.color = dados.som ? '#f87171' : '';
+
+  const ax = dados.ax || 0, ay = dados.ay || 0, az = dados.az || 0;
+  document.getElementById('s-mov').textContent =
+    Math.sqrt(ax*ax + ay*ay + az*az) > 1.2 ? 'movimento' : 'estática';
+
+  const espEl = document.getElementById('esp-status');
+  espEl.textContent = dados.online ? '🟢 ESP32 online' : '🔴 ESP32 offline';
+  espEl.style.color = dados.online ? '#34d399' : '#f87171';
+}
+
+function atualizarAmizade(nivel, pontos, apelido) {
+  document.getElementById('nivel-amizade').textContent = nivel || 'Desconhecido';
+  document.getElementById('info-amizade').textContent  =
+    `👤 ${apelido || 'usuário'}  |  🤝 ${nivel || 'Desconhecido'} (${pontos || 0}/100 pts)`;
+}
+
+/* ── AUTH UI ────────────────────────────────────────────────────────────── */
+function abrirModal() {
+  document.getElementById('modal-overlay').classList.add('ativo');
+}
+function fecharModal() {
+  document.getElementById('modal-overlay').classList.remove('ativo');
+}
+
+function trocarAba(aba) {
+  document.querySelectorAll('.auth-tab').forEach((t, i) => {
+    t.classList.toggle('ativo', (aba === 'login' && i === 0) || (aba === 'cadastro' && i === 1));
+  });
+  document.getElementById('form-login').style.display    = aba === 'login'    ? 'flex' : 'none';
+  document.getElementById('form-cadastro').style.display = aba === 'cadastro' ? 'flex' : 'none';
+  document.getElementById('auth-erro').textContent     = '';
+  document.getElementById('auth-sucesso').textContent  = '';
+  document.getElementById('auth-erro-cad').textContent    = '';
+  document.getElementById('auth-sucesso-cad').textContent = '';
+}
+
+function _setErro(id, msg)    { document.getElementById(id).textContent = msg; }
+function _setSucesso(id, msg) { document.getElementById(id).textContent = msg; }
+
+async function fazerLogin() {
+  const email = document.getElementById('login-email').value.trim();
+  const senha = document.getElementById('login-senha').value;
+  _setErro('auth-erro', '');
+
+  if (!email || !senha) return _setErro('auth-erro', 'Preencha e-mail e senha.');
+
+  try {
+    const res  = await fetch('/login', {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify({ email, senha })
+    });
+    const data = await res.json();
+    if (!data.ok) return _setErro('auth-erro', data.erro);
+
+    _setSucesso('auth-sucesso', `Bem-vindo, ${data.nome}! ✨`);
+    setTimeout(() => { fecharModal(); iniciarChat(); }, 900);
+  } catch(e) {
+    _setErro('auth-erro', 'Erro de conexão.');
   }
+}
 
-  function atualizarHumor(h) {
-    const info  = HUMORES[h] || HUMORES['N'];
-    const badge = document.getElementById('badge-humor');
-    badge.textContent       = `${info.emoji} ${info.label}`;
-    badge.style.background  = info.bg;
-    badge.style.color       = info.cor;
-    const oled = document.getElementById('oled-face');
-    oled.textContent  = info.face;
-    oled.style.color  = info.cor;
+async function fazerCadastro() {
+  const nome  = document.getElementById('cad-nome').value.trim();
+  const email = document.getElementById('cad-email').value.trim();
+  const senha = document.getElementById('cad-senha').value;
+  _setErro('auth-erro-cad', '');
+
+  if (!email || !senha) return _setErro('auth-erro-cad', 'Preencha e-mail e senha.');
+  if (senha.length < 6)  return _setErro('auth-erro-cad', 'Senha mínima: 6 caracteres.');
+
+  try {
+    const res  = await fetch('/register', {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify({ nome, email, senha })
+    });
+    const data = await res.json();
+    if (!data.ok) return _setErro('auth-erro-cad', data.erro);
+
+    _setSucesso('auth-sucesso-cad', `Conta criada! Bem-vindo, ${data.nome}! 🎉`);
+    setTimeout(() => { fecharModal(); iniciarChat(); }, 900);
+  } catch(e) {
+    _setErro('auth-erro-cad', 'Erro de conexão.');
   }
+}
 
-  function atualizarEstados(e, c, m) {
-    document.getElementById('b-energia').style.width     = (e ?? 100) + '%';
-    document.getElementById('b-curiosidade').style.width = (c ?? 70)  + '%';
-    document.getElementById('b-medo').style.width        = (m ?? 10)  + '%';
+async function continuarComoVisitante() {
+  /* Simplesmente fecha o modal.
+     O servidor já criou um cookie anon_ no primeiro GET / */
+  fecharModal();
+  iniciarChat();
+}
+
+async function fazerLogout() {
+  await fetch('/logout', { method: 'POST' });
+  location.reload();
+}
+
+/* ── ATUALIZA BOTÃO DO HEADER ──────────────────────────────────────────── */
+function atualizarBotaoAuth(logado, nome) {
+  const btn = document.getElementById('btn-auth-header');
+  if (logado) {
+    btn.textContent = `👤 ${nome}  ·  Sair`;
+    btn.onclick     = fazerLogout;
+  } else {
+    btn.textContent = '⚡ Entrar';
+    btn.onclick     = abrirModal;
   }
+}
 
-  function atualizarSensores(dados) {
-    if (!dados) return;
+/* ── ENVIAR MENSAGEM ────────────────────────────────────────────────────── */
+async function enviar() {
+  const campo = document.getElementById('campo');
+  const texto = campo.value.trim();
+  if (!texto) return;
 
-    /* Temperatura */
-    if (dados.temp !== null && dados.temp !== undefined)
-      document.getElementById('s-temp').textContent = Number(dados.temp).toFixed(1);
+  campo.value    = '';
+  campo.disabled = true;
+  document.getElementById('btn-enviar').disabled = true;
 
-    /* Umidade */
-    if (dados.umid !== null && dados.umid !== undefined)
-      document.getElementById('s-umid').textContent = Math.round(dados.umid);
+  addMsg(texto, 'user');
+  const typing = addMsg('...', 'ia typing');
 
-    /* Distância */
-    if (dados.dist !== null && dados.dist !== undefined)
-      document.getElementById('s-dist').textContent = Math.round(dados.dist);
+  try {
+    /* Nota: NÃO enviamos user_id no body.
+       O Flask lê o user_id do cookie de sessão assinado. */
+    const res  = await fetch('/enviar', {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify({ mensagem: texto })
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
 
-    /* Luminosidade */
-    if (dados.lux !== null && dados.lux !== undefined)
-      document.getElementById('s-lux').textContent = dados.lux;
+    typing.remove();
+    addMsg(data.resposta, 'ia');
+    atualizarHumor(data.humor);
+    atualizarEstados(data.energia, data.curiosidade, data.medo);
+    atualizarSensores(data.sensores);
+    atualizarAmizade(data.nivel_amizade, data.pontos_amizade, data.apelido);
 
-    /* Som */
-    const somEl = document.getElementById('s-som');
-    somEl.textContent  = dados.som ? 'som!' : 'silêncio';
-    somEl.style.color  = dados.som ? '#f87171' : '';
-
-    /* Movimento via MPU */
-    const ax  = dados.ax || 0;
-    const ay  = dados.ay || 0;
-    const az  = dados.az || 0;
-    const mag = Math.sqrt(ax*ax + ay*ay + az*az);
-    document.getElementById('s-mov').textContent = mag > 1.2 ? 'movimento' : 'estática';
-
-    /* Status do ESP32 */
-    const statusEl = document.getElementById('esp-status');
-    if (dados.online) {
-      statusEl.textContent = '🟢 ESP32 online';
-      statusEl.style.color = '#34d399';
-    } else {
-      statusEl.textContent = '🔴 ESP32 offline';
-      statusEl.style.color = '#f87171';
-    }
+  } catch(err) {
+    typing.textContent = '⚠️ Erro de conexão com a Yatra.';
+    console.error('[Yatra]', err);
+  } finally {
+    campo.disabled = false;
+    document.getElementById('btn-enviar').disabled = false;
+    campo.focus();
   }
+}
 
-  function atualizarAmizade(nivel, pontos, apelido) {
-    document.getElementById('nivel-amizade').textContent = nivel || 'Desconhecido';
-    document.getElementById('info-amizade').textContent =
-      `👤 ${apelido || 'usuário'}  |  🤝 ${nivel || 'Desconhecido'} (${pontos || 0}/100 pts)`;
-  }
-
-  /* ─────────────────────────────────────────────────────
-     ENVIAR MENSAGEM  →  POST /enviar
-  ───────────────────────────────────────────────────── */
-  async function enviar() {
-    const campo = document.getElementById('campo');
-    const texto = campo.value.trim();
-    if (!texto) return;
-
-    campo.value    = '';
-    campo.disabled = true;
-    document.getElementById('btn-enviar').disabled = true;
-
-    addMsg(texto, 'user');
-    const typing = addMsg('...', 'ia typing');
-
-    try {
-      const res = await fetch('/enviar', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ mensagem: texto, user_id: USER_ID })
-      });
-
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-
-      typing.remove();
-      addMsg(data.resposta, 'ia');
-      atualizarHumor(data.humor);
-      atualizarEstados(data.energia, data.curiosidade, data.medo);
-      atualizarSensores(data.sensores);
-      atualizarAmizade(data.nivel_amizade, data.pontos_amizade, data.apelido);
-
-    } catch (err) {
-      typing.textContent = '⚠️ Erro de conexão com a Yatra.';
-      console.error('[Yatra] Erro ao enviar:', err);
-    } finally {
-      campo.disabled = false;
-      document.getElementById('btn-enviar').disabled = false;
-      campo.focus();
-    }
-  }
-
-  /* ─────────────────────────────────────────────────────
-     CARGA INICIAL  →  GET /status
-  ───────────────────────────────────────────────────── */
+/* ── CARGA INICIAL ──────────────────────────────────────────────────────── */
+function iniciarChat() {
+  /* /status usa a sessão do cookie — não precisa de parâmetros */
   fetch('/status')
     .then(r => r.json())
     .then(d => {
@@ -414,18 +560,46 @@
       atualizarEstados(d.energia, d.curiosidade, d.medo);
       if (d.greeting) addMsg(d.greeting, 'ia');
       atualizarAmizade(d.nivel_amizade, d.pontos_amizade, d.apelido);
+      atualizarBotaoAuth(d.logado, d.nome);
     })
     .catch(err => console.error('[Yatra] Erro ao carregar status:', err));
+}
 
-  /* ─────────────────────────────────────────────────────
-     POLLING DE SENSORES  →  GET /sensores  (a cada 1s)
-  ───────────────────────────────────────────────────── */
-  setInterval(() => {
-    fetch('/sensores')
-      .then(r => r.json())
-      .then(atualizarSensores)
-      .catch(() => {}); /* silencia erros de rede no polling */
-  }, 1000); /* 1 segundo */
+/* ── POLLING DE SENSORES ────────────────────────────────────────────────── */
+setInterval(() => {
+  fetch('/sensores').then(r => r.json()).then(atualizarSensores).catch(() => {});
+}, 1000);
+
+/* ── FECHAR MODAL CLICANDO FORA ─────────────────────────────────────────── */
+document.getElementById('modal-overlay').addEventListener('click', function(e) {
+  if (e.target === this) fecharModal();
+});
+
+/* ── ENTER no formulário de login ───────────────────────────────────────── */
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') {
+    const loginVisible = document.getElementById('form-login').style.display !== 'none';
+    if (loginVisible && document.getElementById('modal-overlay').classList.contains('ativo')) {
+      fazerLogin();
+    }
+  }
+});
+
+/* ── INÍCIO ─────────────────────────────────────────────────────────────── */
+// Verifica sessão atual via /me — se logado, inicia direto; se não, abre modal.
+fetch('/me')
+  .then(r => r.json())
+  .then(d => {
+    atualizarBotaoAuth(d.logado, d.nome);
+    if (d.logado) {
+      // Usuário já logado (cookie válido) → inicia direto
+      iniciarChat();
+    } else {
+      // Visitante sem conta → pergunta se quer entrar ou continuar
+      abrirModal();
+    }
+  })
+  .catch(() => iniciarChat());  // fallback em caso de erro de rede
 </script>
 </body>
 </html>
