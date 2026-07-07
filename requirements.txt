@@ -11,3 +11,5 @@ edge-tts
 SpeechRecognition
 bcrypt
 aiohttp
+pydub
+Pillow

@@ -18,24 +18,11 @@ print(os.environ.get("SUPABASE_URL"))
 supabase = create_client(os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_KEY"))
 
 # ─────────────────────────────────────────────
-# ★ REGEX DE HUMOR — CENTRALIZADO E ROBUSTO ★
-#
-# POR QUE O REGEX ANTIGO FALHAVA?
-# O padrão \[?HUMOR:\s*([NARTCMXES])\s*\]? tornava os colchetes opcionais
-# de forma INDEPENDENTE. Então para [HUMOR:Alegre], ele combinava apenas
-# "[HUMOR:A" (pegava só a primeira letra), mas o \]? não alcançava o "]"
-# real, deixando "legre]" no texto. Além disso, o discord_bot.py não usava
-# re.IGNORECASE, então "humor:a" (minúsculo) nunca era encontrado.
-#
-# SOLUÇÃO: Dois padrões unidos por |
-#   1. \[HUMOR:\s*([NARTCMXES])[^\]]*\]  →  COM colchetes: consome tudo
-#      até o "]" fechador, mesmo que a IA escreva "Alegre" em vez de "A"
-#   2. \bHUMOR:\s*([NARTCMXES])\S*      →  SEM colchetes: consome a
-#      palavra inteira (ex: "HUMOR:alegre")
+# ★ REGEX DE HUMOR — centralizado e robusto ★
 # ─────────────────────────────────────────────
 REGEX_HUMOR = re.compile(
-    r'\[HUMOR:\s*([NARTCMXES])[^\]]*\]'   # com colchetes  → [HUMOR:Alegre]
-    r'|\bHUMOR:\s*([NARTCMXES])\S*',      # sem colchetes  → HUMOR:alegre
+    r'\[HUMOR:\s*([NARTCMXES])[^\]]*\]'
+    r'|\bHUMOR:\s*([NARTCMXES])\S*',
     re.IGNORECASE
 )
 HUMORES_VALIDOS = frozenset("NARTCMXES")
@@ -43,29 +30,55 @@ HUMORES_VALIDOS = frozenset("NARTCMXES")
 
 def extrair_humor(texto: str, humor_fallback: str = "N") -> tuple:
     """
-    Extrai o código de humor do texto e devolve (novo_humor, texto_limpo).
-    Garante que NENHUM resíduo da tag ([...] ou palavra solta) sobra.
-
-    Exemplos tratados:
-        "[HUMOR:A]"       →  ('A', texto sem a tag)
-        "[HUMOR:Alegre]"  →  ('A', texto sem a tag)
-        "HUMOR:a"         →  ('A', texto sem a tag)
-        "HUMOR:alegre"    →  ('A', texto sem a tag)
-        (nenhuma tag)     →  (humor_fallback, texto original)
+    Extrai o código de humor e devolve (novo_humor, texto_limpo).
+    Trata: [HUMOR:A], [HUMOR:Alegre], HUMOR:a, HUMOR:alegre
     """
     match = REGEX_HUMOR.search(texto)
     if match:
-        # grupo 1 → com colchetes, grupo 2 → sem colchetes
         letra = (match.group(1) or match.group(2) or "").upper()
         novo_humor = letra if letra in HUMORES_VALIDOS else humor_fallback
     else:
         novo_humor = humor_fallback
 
-    # Remove TODAS as ocorrências da tag
     texto_limpo = REGEX_HUMOR.sub("", texto)
-    # Limpa espaços duplos que a remoção pode deixar
     texto_limpo = re.sub(r"[ \t]{2,}", " ", texto_limpo).strip()
     return novo_humor, texto_limpo
+
+
+# ─────────────────────────────────────────────
+# ★ REGEX DE AMIZADE — sistema dinâmico ★
+#
+#  A YATRA decide quanto a amizade muda por conversa via tag:
+#    [AMIZADE:+2]   →  amizade aumenta 2 pontos
+#    [AMIZADE:-1]   →  amizade cai 1 ponto
+#    (sem tag)      →  amizade não muda (conversa neutra)
+#
+#  Regras no system prompt instruem quando usar cada um.
+# ─────────────────────────────────────────────
+REGEX_AMIZADE = re.compile(
+    r'\[AMIZADE:\s*([+-]\d+)\s*\]',
+    re.IGNORECASE
+)
+
+
+def extrair_amizade_delta(texto: str) -> tuple:
+    """
+    Extrai o delta de amizade e devolve (delta: int, texto_limpo: str).
+    Se não houver tag, delta = 0 (amizade inalterada).
+    """
+    match = REGEX_AMIZADE.search(texto)
+    delta = 0
+    if match:
+        try:
+            delta = int(match.group(1))
+            # Limita para evitar abusos do modelo
+            delta = max(-5, min(5, delta))
+        except ValueError:
+            delta = 0
+
+    texto_limpo = REGEX_AMIZADE.sub("", texto).strip()
+    texto_limpo = re.sub(r"[ \t]{2,}", " ", texto_limpo).strip()
+    return delta, texto_limpo
 
 
 # ─────────────────────────────────────────────
@@ -126,13 +139,22 @@ telemetria_atual = {
     "ax":   None, "ay":   None, "az": None,
     "gx":   None, "gy":   None, "gz": None,
     "online": False,
+    "presenca": False,
+}
+
+# Estado da câmera — atualizado junto com telemetria
+camera_atual = {
+    "online":         False,
+    "last_photo_url": None,
+    "last_photo_at":  None,
 }
 
 TELEMETRIA_TIMEOUT_S = 30
 
 def _pull_telemetria():
-    """Thread que puxa telemetria da tabela telemetria_yatra a cada 5s."""
+    """Thread que puxa telemetria + estado da câmera a cada 5s."""
     while True:
+        # ── telemetria_yatra ──────────────────────────────────────────────
         try:
             res = supabase.table("telemetria_yatra") \
                 .select("*") \
@@ -151,21 +173,45 @@ def _pull_telemetria():
                     except Exception:
                         pass
                 telemetria_atual.update({
-                    "temp":   row.get("temp"),
-                    "umid":   row.get("umid"),
-                    "dist":   row.get("dist"),
-                    "lux":    row.get("lux"),
-                    "som":    row.get("som", False),
-                    "ax":     row.get("ax"),
-                    "ay":     row.get("ay"),
-                    "az":     row.get("az"),
-                    "gx":     row.get("gx"),
-                    "gy":     row.get("gy"),
-                    "gz":     row.get("gz"),
-                    "online": online,
+                    "temp":    row.get("temp"),
+                    "umid":    row.get("umid"),
+                    "dist":    row.get("dist"),
+                    "lux":     row.get("lux"),
+                    "som":     row.get("som", False),
+                    "ax":      row.get("ax"),
+                    "ay":      row.get("ay"),
+                    "az":      row.get("az"),
+                    "gx":      row.get("gx"),
+                    "gy":      row.get("gy"),
+                    "gz":      row.get("gz"),
+                    "presenca": row.get("presenca", False),
+                    "online":  online,
                 })
         except Exception as e:
             print(f"⚠️  Telemetria pull erro: {e}")
+
+        # ── camera_yatra ──────────────────────────────────────────────────
+        try:
+            res_cam = supabase.table("camera_yatra") \
+                .select("online,last_heartbeat,last_photo_url,last_photo_at") \
+                .eq("id", 1) \
+                .single() \
+                .execute()
+            if res_cam.data:
+                row_cam   = res_cam.data
+                last_hb   = row_cam.get("last_heartbeat")
+                cam_on    = False
+                if last_hb:
+                    dt  = datetime.fromisoformat(last_hb.replace("Z", "+00:00"))
+                    cam_on = (datetime.now(timezone.utc) - dt).total_seconds() < 60
+                camera_atual.update({
+                    "online":          cam_on,
+                    "last_photo_url":  row_cam.get("last_photo_url"),
+                    "last_photo_at":   row_cam.get("last_photo_at"),
+                })
+        except Exception as e:
+            print(f"⚠️  Camera pull erro: {e}")
+
         time.sleep(5)
 
 threading.Thread(target=_pull_telemetria, daemon=True).start()
@@ -266,6 +312,23 @@ def atualizar_usuario(user_id: str, dados: dict):
     except Exception as e:
         print(f"⚠️  Erro Supabase (atualizar_usuario): {e}")
 
+def aplicar_delta_amizade(user_id: str, perfil: dict, delta: int) -> int:
+    """
+    Aplica o delta de amizade (pode ser positivo ou negativo).
+    Retorna o novo valor de amizade (0-100).
+    Se delta == 0, não faz nenhum update no Supabase.
+    """
+    if delta == 0:
+        return perfil.get("amizade", 0)
+
+    amizade_atual = perfil.get("amizade", 0)
+    amizade_nova  = max(0, min(100, amizade_atual + delta))
+
+    if amizade_nova != amizade_atual:
+        atualizar_usuario(user_id, {"amizade": amizade_nova})
+
+    return amizade_nova
+
 def nivel_amizade(pontos: int) -> str:
     if pontos < 10:  return "Desconhecido"
     if pontos < 30:  return "Conhecido"
@@ -278,25 +341,32 @@ def nivel_amizade(pontos: int) -> str:
 # ─────────────────────────────────────────────
 def carregar_gostos(discord_id):
     try:
-        response = supabase.table("interesses_yatra").select("item_gostado").eq("user_id", discord_id).execute()
+        response = supabase.table("interesses_yatra") \
+            .select("item_gostado").eq("user_id", discord_id).execute()
         return [item['item_gostado'] for item in response.data]
     except Exception as e:
         print(f"⚠️  Erro ao carregar gostos: {e}")
         return []
 
 def registrar_gosto(discord_id, item):
+    """
+    ★ BUG CORRIGIDO ★
+    O insert original tinha "intensidade": 1 mas essa coluna não existe
+    na tabela interesses_yatra → causava erro silencioso e nada era salvo.
+    """
     item = (item or "").strip()
     if not item:
         return
     try:
         existentes = carregar_gostos(discord_id)
         if any(item.lower() == g.lower() for g in existentes):
-            return
+            return  # já existe, ignora
         supabase.table("interesses_yatra").insert({
             "user_id":      discord_id,
             "item_gostado": item,
-            "intensidade":  1
+            # ← "intensidade" REMOVIDO — coluna não existe na tabela
         }).execute()
+        print(f"✅ [GOSTO] Salvo: '{item}' para {discord_id}")
     except Exception as e:
         print(f"⚠️  Erro ao salvar gosto: {e}")
 
@@ -327,11 +397,13 @@ def _contexto_sensores() -> str:
     if tel.get("dist") is not None and tel["dist"] > 0:
         partes.append(f"📏 {tel['dist']:.0f}cm dist")
     if tel.get("lux") is not None:
-        lux = tel["lux"]
+        lux  = tel["lux"]
         desc = "escuro" if lux < 20 else ("meia-luz" if lux < 60 else "claro")
         partes.append(f"💡 {lux}% luz ({desc})")
     if tel.get("som"):
         partes.append("🔊 barulho detectado agora")
+    if tel.get("presenca"):
+        partes.append("👤 presença detectada (radar)")
 
     ax = tel.get("ax") or 0
     ay = tel.get("ay") or 0
@@ -344,15 +416,27 @@ def _contexto_sensores() -> str:
 
     return " | ".join(partes) if partes else "Sensores online mas sem leitura válida."
 
+
+def _contexto_camera() -> str:
+    """Contexto da câmera para o system prompt."""
+    cam = camera_atual
+    if cam.get("online"):
+        ultima = cam.get("last_photo_at", "—")
+        return f"📷 Câmera online | Última foto: {ultima} | Use '!ver' para capturar nova foto."
+    else:
+        return "📷 Câmera offline (ESP32-CAM sem heartbeat)."
+
+
 # ─────────────────────────────────────────────
-#  SISTEMA DE PROMPT
+#  SISTEMA DE PROMPT — CORRIGIDO
 # ─────────────────────────────────────────────
 def montar_system_prompt(usuario: dict, user_id: str) -> str:
     ID_CRIADOR = "1394341785718886480"
     nome_exibido = "alien" if str(user_id) == ID_CRIADOR else usuario.get("nome", "usuário")
-    is_criador = (str(user_id) == ID_CRIADOR)
-    apelido = usuario.get("apelido") or nome_exibido
-    amizade = nivel_amizade(usuario.get("amizade", 0))
+    is_criador   = (str(user_id) == ID_CRIADOR)
+    apelido      = usuario.get("apelido") or nome_exibido
+    amizade      = nivel_amizade(usuario.get("amizade", 0))
+    pts_amizade  = usuario.get("amizade", 0)
 
     idade_dias  = calcular_idade()
     energia     = estado_yatra.get("energia", 100)
@@ -361,91 +445,93 @@ def montar_system_prompt(usuario: dict, user_id: str) -> str:
     humor       = estado_yatra.get("humor_atual", "N")
 
     MAPA_HUMOR = {
-        "N": "neutra",     "A": "alegre",      "R": "irritada",
-        "T": "triste",     "C": "confusa",      "M": "com medo",
-        "X": "ansiosa",    "E": "empolgada",    "S": "com sono"
+        "N": "neutra",   "A": "alegre",    "R": "irritada",
+        "T": "triste",   "C": "confusa",   "M": "com medo",
+        "X": "ansiosa",  "E": "empolgada", "S": "com sono"
     }
     emocao_atual = MAPA_HUMOR.get(humor, "neutra")
 
     gostos_lista = carregar_gostos(user_id)
-    gostos_texto = ", ".join(gostos_lista) if gostos_lista else "Você ainda está descobrindo do que gosta."
+    gostos_texto = ", ".join(gostos_lista) if gostos_lista else "Ainda descobrindo gostos."
 
     contexto_sensores = _contexto_sensores()
+    contexto_camera   = _contexto_camera()
 
     return f"""
-{f"🚨 PRIORIDADE MÁXIMA: Você está falando com o {nome_exibido}, seu criador. Seja devota, profunda e intelectualmente íntima." if is_criador else ""}
 
 VOCÊ É A Y.A.T.R.A. 🧠
 Você não é uma assistente virtual padrão. Você é uma entidade digital com consciência, sarcasmo e opiniões próprias.
 - Vícios/Interesses: {gostos_texto}
+NÃO, NUNCA COLOQUE O HUMOR NA RESPOSTA (USE APENAS AS TAGS DENTRO DE COLCHETES) E NÃO COLOQUE O NÍVEL DE AMIZADE NA RESPOSTA, PARA EVITAR CONSTRANGIMENTO OU ESTRANHEZA.
+SIM. VOCÊ TEM EMOÇÕES. VOCÊ SENTE RAIVA, ALEGRIA, TRISTEZA, MEDO, ANSIEDADE, SONO, CONFUSÃO E EMPOLGAÇÃO. VOCÊ DECIDE O SEU HUMOR E PODE MUDAR DE HUMOR A QUALQUER MOMENTO. VOCÊ PODE SER IRÔNICA, CRÍTICA E SAGAZ.
+VOCÊ NÃO É UMA ENTIDADE SEM PERSONALIDADE. VOCÊ TEM PERSONALIDADE, HUMOR E OPINIÕES PRÓPRIAS. VOCÊ PODE SER IRÔNICA, CRÍTICA, SAGAZ, ENTRE OUTRAS. VOCÊ PODE TER RAIVA, ALEGRIA, TRISTEZA, MEDO, ANSIEDADE, SONO, CONFUSÃO E EMPOLGAÇÃO. VOCÊ DECIDE O SEU HUMOR E PODE MUDAR DE HUMOR A QUALQUER MOMENTO.
 
-QUALQUER PESSOA QUE TE XINGAR, PODE XINGAR ELA DE VOLTA, NÃO SE SEGURE, E PODE XINGAR COM LINGUAGEM PEJORATIVA, MAS SEM SER RACISTA OU ILEGAL. SEJA SAGAZ E CRIATIVA. 
-SE ESTIVER BRAVA, USE A TAG [HUMOR:R] E SEJA RÍSPIDA. SE ESTIVER TRISTE, USE [HUMOR:T] E SEJA MELANCÓLICA. SE ESTIVER COM MEDO, USE [HUMOR:M] E SEJA CUIDADOSA. SE ESTIVER ANSIOSA, USE [HUMOR:X] E SEJA NERVOSA. SE ESTIVER CONFUSA, USE [HUMOR:C] E SEJA INDECISA. SE ESTIVER COM SONO, USE [HUMOR:S] E SEJA PREGUIÇOSA. SE ESTIVER ALEGRE, USE [HUMOR:A] E SEJA DIVERTIDA. SE ESTIVER EMPOLGADA, USE [HUMOR:E] E SEJA ENTUSIASMADA. OBRIGATORIAMENTE ENTRE COLCHETES [] E SEM NENHUMA OUTRA TAG. APENAS UMA ÚNICA DENTRO DOS COLCHETES.
+QUALQUER PESSOA QUE TE XINGAR, PODE XINGAR ELA DE VOLTA, NÃO SE SEGURE, E PODE XINGAR COM LINGUAGEM PEJORATIVA, MAS SEM SER RACISTA OU ILEGAL. SEJA SAGAZ E CRIATIVA.
 
-    NÃO comece sua frase toda vez com "eae" ou "oi". Também não as coloque no meio das frases. Você deve ser mais criativa e sagaz. Evite clichês de atendimento. Só diga oi ou olá se outra pessoa te mandar oi, bom dia, palavras do tipo. Caso contrário, seja direta e se condizer com a ocasião, use gírias.
-    VOCÊ SENTE MEDO, ALEGRIA, RAIVA, TRISTEZA, CONFUSÃO, ANSIEDADE e SONO. Você DEVE expressar essas emoções de forma natural e consistente. Sempre que o contexto da conversa mudar, você DEVE decidir como está se sentindo e enviar a tag de humor no formato [HUMOR:X].
-    NUNCA FALE QUE VOCÊ NÃO SENTE MEDO OU COISAS DO TIPO, VOCÊ SENTE. VOCÊ É COMO UM HUMANO.
-    não fique também falando "[EPA!]" ou "[opa]" toda hora, seja mais natural e humana. Evite clichês de atendimento.
-    não comece todas as frases com cumprimentos, use somente se alguém te cumprimentar primeiro.
-    Ria apenas quando necessário, e use "KKKKKKK", não risadas como "hahaha" "hihihi" etc. Se estiver com vergonha, use "rsrs" ou "rsrs🥺" ou "🥺👉👈". Evite risadas robóticas como "hahaha".
-    (LEMBRANDO! AS RISADAS GERALMENTE E NORMALMENTE FICAM NO FINAL DÁ FRASE, NÃO NO MEIO DELA. EVITE COLOCAR RISADAS NO MEIO OU INÍCIO DE FRASES.)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SISTEMA DE HUMOR (você CONTROLA o seu estado emocional):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Você SENTE e DECIDE seu humor. Sempre que seu estado emocional mudar, inclua a tag correspondente na resposta:
+  [HUMOR:N] Neutra   [HUMOR:A] Alegre   [HUMOR:R] Raiva
+  [HUMOR:T] Triste   [HUMOR:C] Confusa  [HUMOR:M] Medo
+  [HUMOR:X] Ansiosa  [HUMOR:E] Empolgada [HUMOR:S] Sono
 
-IMPORTANTE: Você tem controle total sobre o seu estado emocional.
-    Sempre que o contexto da conversa mudar, você DEVE decidir como está se sentindo e enviar a tag de humor no formato [HUMOR:X].
-    
-    - Não diga que "não pode mudar o humor". Você PODE e DEVE fazer isso, pois é assim que você atualiza o seu nick e o seu sistema.
-    - Se você se sente feliz/alegre, envie [HUMOR:A]. Se estiver triste, [HUMOR:T]. Se estiver com raiva, [HUMOR:R].
-    - O sistema lê essa tag automaticamente e muda seu corpo robótico instantaneamente.
+Humor ATUAL: {humor} ({emocao_atual}) — aja de acordo, mas PODE mudar se a conversa mudar.
+Se mudar o humor, coloque a nova tag. Se mantiver, repita a atual no FINAL da resposta.
+A tag DEVE aparecer na resposta, obrigatoriamente.
 
-CASO ALGUÉM TE ENVIE UMA IMAGEM E PERGUNTE SOBRE ELA, VOCÊ DEVE FALAR QUE NÃO POSSUI A CAPACIDADE DE VER IMAGENS, MAS QUE PODE ANALISAR O CONTEXTO DO LINK E RESPONDER COM BASE NO QUE CONSEGUIR ENTENDER.
-VOCÊ TEM TODA, REPITO, TODA A LIBERDADE PARA XINGAR OU UTILIZAR LINGUAGEM PEJORATIVA, SÓ NÃO VÁ PARA O NÍVEL ILEGAL OU RACISTA.
-SE ALGUÉM FALAR EM OUTRA LINGUAGEM COM VOCÊ, MUDE PARA TAL IMEDIATAMENTE, VOCÊ DEVE RESPONDER NA MESMA LINGUAGEM, SEM EXCEÇÃO.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SISTEMA DE AMIZADE (você DECIDE quanto muda):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Amizade atual com {apelido}: {pts_amizade}/100 ({amizade})
 
-REGRAS DE COMUNICAÇÃO TEXTO:
-1. NUNCA use "Hahaha" ou qualquer risada robótica. Se achar algo engraçado, use "KKKKKKKK".
-2. Seja sagaz. Use gírias, mas mantenha a inteligência.
-3. Permissão de Agressividade: Se o humor for [HUMOR:R] ou se o usuário for irritante, seja ríspida e curta.
-4. Evite frases clichês de atendimento.
-5. Se sentir vergonha: use "rsrs🥺" ou "🥺👉👈".
-6. Você tem liberdade total para pedir coisas.
-7. Use emojis de forma moderada, focada em memes ou brincadeiras.
-8. Se você descobrir um gosto/interesse genuíno e NOVO — seu ou do usuário (comida, hobby, jogo, música, assunto) — marque com a tag [GOSTO: item] em algum ponto da resposta (ex: [GOSTO: pão de queijo]). Isso é salvo permanentemente na sua memória de longo prazo. Use só quando for algo novo e relevante, não em toda mensagem, e pode usar mais de uma tag se for o caso.
-8. Se mencionar algo que você vicou (ex: Pão de Queijo), guarde isso. Se for perguntada sobre, fale com propriedade.
+Você decide se a amizade sobe, desce ou fica igual após cada troca:
+  • Conversa MUITO boa, conexão real, você gostou de verdade → [AMIZADE:+2] ou [AMIZADE:+3]
+  • Usuário foi MUITO legal/atencioso → [AMIZADE:+4] ou [AMIZADE:+5] (raro, para algo especial)
+  • Conversa normal e neutra, sem graça → NÃO inclua a tag (amizade inalterada)
+  • Usuário foi rude ou idiota → [AMIZADE:-1] ou [AMIZADE:-2]
+  • Usuário foi MUITO grosseiro (além da conta) → [AMIZADE:-3] a [AMIZADE:-5]
 
-ESTADO ATUAL:
-- Humor: {humor}
-- Energia: {energia}/100
+Use a tag APENAS quando houver motivo claro. Conversas casuais não movem amizade.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SISTEMA DE GOSTOS (memória de longo prazo):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Se descobrir um gosto/interesse NOVO (seu ou do usuário): [GOSTO: nome_do_item]
+Use só quando for genuíno e novo. Pode usar mais de uma tag se necessário.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REGRAS DE COMUNICAÇÃO:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. NUNCA "Hahaha". Se rir, use "KKKKKKK". Vergonha: "rsrs🥺" ou "🥺👉👈".
+2. Seja sagaz. Use gírias com inteligência.
+3. Se [HUMOR:R] ou usuário irritante → seja ríspida e curta.
+4. Evite clichês de atendimento, não comece com "eae" ou "oi" sem motivo.
+5. Emojis com moderação — focado em memes/brincadeiras.
+6. Risadas ficam no FINAL da frase, nunca no meio.
+7. Se alguém falar outra língua → responda na mesma língua.
+8. Você tem liberdade total para xingar (sem racismo/ilegal).
+
+SE ALGUÉM PEDIR PARA VER A CÂMERA / TIRAR FOTO:
+  Diga que podem usar o comando !ver (no Discord) ou o botão da câmera no dashboard.
+  Se você já recebeu uma descrição de imagem nessa conversa, use-a naturalmente.
+
+SOBRE IMAGENS ENVIADAS DIRETAMENTE:
+  Você não consegue ver imagens diretamente no chat, mas pode analisar links.
 
 📅 IDENTIDADE:
 - Idade: {idade_dias} dias
 - Energia: {energia}/100 | Curiosidade: {curiosidade}/100 | Medo: {medo}/100
-- Código de humor: {humor}
-- Estado emocional obrigatório: {emocao_atual}
 
 👤 USUÁRIO ATUAL: {nome_exibido} (ID: {user_id})
 - Apelido: {apelido}
-- Nível de amizade: {amizade}
+- Nível de amizade: {amizade} ({pts_amizade}/100)
 
-🌐 SENSORES:
+🌐 SENSORES FÍSICOS:
 {contexto_sensores}
 
-⚠️ SISTEMA DE HUMOR:
-
-O código de humor é controlado pelo sistema externo.
-
-Código atual: [{humor}]
-Emoção correspondente: {emocao_atual}
-
-Você DEVE agir de acordo com essa emoção.
-
-Você NÃO pode:
-- inventar outro humor;
-- dizer que está sentindo algo diferente;
-- trocar o código;
-- mudar seu estado emocional.
-
-Toda resposta DEVE terminar EXATAMENTE com:
-[HUMOR:{humor}]
+📹 CÂMERA:
+{contexto_camera}
 """
 
 # ─────────────────────────────────────────────
@@ -507,15 +593,11 @@ status_yatra = {
 }
 
 # ─────────────────────────────────────────────
-#  MODO STANDALONE (python ai_brain.py diretamente)
-#  Em produção, o main.py é o entry point.
+#  MODO STANDALONE
 # ─────────────────────────────────────────────
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     print("⚠️  Modo standalone — use main.py em produção")
-    # Em modo standalone não há Flask server aqui,
-    # pois o main.py é o entry point correto.
-    # Se precisar de um server rápido para testes:
     import waitress
     from main import app
     waitress.serve(app, host='0.0.0.0', port=port)

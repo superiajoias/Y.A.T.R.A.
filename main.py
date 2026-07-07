@@ -336,6 +336,15 @@ def enviar():
             "apelido":        apelido,
         }), 500
 
+#══════════════════════════════════════════════════════════════════════════════
+#  ROTA DE STATUS DA CÂMERA (para o DISCORD saber se está online E se a captura funcionará)
+#══════════════════════════════════════════════════════════════════════════════
+
+
+@app.route('/api/camera/status', methods=['GET'])
+def get_camera_status():
+    # Retorna o status da sua câmera (ex: 'online' ou 'offline')
+    return {"status": "online"}
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  ROTAS LEGADAS

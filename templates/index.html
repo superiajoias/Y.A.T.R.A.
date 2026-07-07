@@ -45,7 +45,6 @@
     }
     .header-left { display: flex; align-items: center; gap: 12px; }
 
-    /* botão de auth no header */
     #btn-auth-header {
       padding: 6px 14px;
       border-radius: 20px;
@@ -108,6 +107,112 @@
     .estado-item { display: flex; align-items: center; gap: 6px; }
     .barra-mini  { width: 60px; height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; }
     .barra-mini-fill { height: 100%; border-radius: 3px; transition: width .5s; }
+
+    /* ── WIDGET DE CÂMERA ────────────────────────────────────── */
+    #camera-widget {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 16px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    #cam-thumb-wrap {
+      position: relative;
+      width: 96px;
+      height: 72px;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1.5px solid var(--border);
+      background: #0a0a0c;
+      flex-shrink: 0;
+      cursor: pointer;
+      transition: border-color .2s;
+    }
+    #cam-thumb-wrap:hover { border-color: var(--accent); }
+
+    #cam-thumb {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    #cam-off-label {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 18px; font-weight: 700;
+      color: #ef4444;
+      text-shadow: 0 0 12px #ef4444aa;
+      letter-spacing: 2px;
+      background: #0a0a0c;
+    }
+
+    #cam-info {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      min-width: 0;
+    }
+    #cam-status-text {
+      font-size: 12px;
+      font-family: 'Share Tech Mono', monospace;
+      color: var(--muted);
+    }
+    #cam-status-text span.online  { color: #22c55e; }
+    #cam-status-text span.offline { color: #ef4444; }
+
+    #cam-ultima-foto {
+      font-size: 11px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #btn-cam-trigger {
+      margin-left: auto;
+      padding: 7px 14px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-size: 12px;
+      font-family: 'Share Tech Mono', monospace;
+      cursor: pointer;
+      transition: background .2s, opacity .2s;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    #btn-cam-trigger:hover   { background: #6d28d9; }
+    #btn-cam-trigger:disabled { opacity: .5; cursor: not-allowed; }
+
+    #cam-modal-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: #000a;
+      z-index: 900;
+      align-items: center;
+      justify-content: center;
+    }
+    #cam-modal-overlay.open { display: flex; }
+    #cam-modal-img {
+      max-width: 90vw;
+      max-height: 85vh;
+      border-radius: 12px;
+      border: 2px solid var(--border);
+      box-shadow: 0 8px 40px #0008;
+    }
+    #cam-modal-close {
+      position: absolute; top: 20px; right: 20px;
+      font-size: 28px; color: #fff;
+      cursor: pointer; line-height: 1;
+      background: #0006; border-radius: 50%;
+      width: 40px; height: 40px;
+      display: flex; align-items: center; justify-content: center;
+    }
 
     /* ── CHAT ────────────────────────────────────────────────── */
     #chat {
@@ -243,20 +348,17 @@
 </head>
 <body>
 
-<!-- ── MODAL DE AUTH ─────────────────────────────────────────────────────── -->
 <div id="modal-overlay">
   <div id="modal-box">
     <h2>👾 Y.A.T.R.A.</h2>
     <p>Entre com uma conta para salvar seu histórico permanentemente,
        ou continue como visitante (sessão temporária).</p>
 
-    <!-- Abas Login / Cadastro -->
     <div class="auth-tabs">
       <button class="auth-tab ativo" onclick="trocarAba('login')">Entrar</button>
       <button class="auth-tab"       onclick="trocarAba('cadastro')">Cadastrar</button>
     </div>
 
-    <!-- Formulário Login -->
     <div class="auth-form" id="form-login">
       <input type="email"    id="login-email" placeholder="seu@email.com" autocomplete="email">
       <input type="password" id="login-senha" placeholder="Senha"         autocomplete="current-password">
@@ -266,7 +368,6 @@
       <button class="btn-auth-skip"   onclick="continuarComoVisitante()">Continuar sem conta →</button>
     </div>
 
-    <!-- Formulário Cadastro -->
     <div class="auth-form" id="form-cadastro" style="display:none">
       <input type="text"     id="cad-nome"  placeholder="Seu nome"        autocomplete="name">
       <input type="email"    id="cad-email" placeholder="seu@email.com"   autocomplete="email">
@@ -280,7 +381,6 @@
   </div>
 </div>
 
-<!-- ── HEADER ────────────────────────────────────────────────────────────── -->
 <header>
   <div class="header-left">
     <div class="oled-preview" id="oled-face">o o</div>
@@ -289,14 +389,12 @@
       <div class="subtitulo" id="sub-idade">carregando...</div>
     </div>
   </div>
-  <!-- Botão dinâmico: mostra "Entrar" ou nome do usuário + "Sair" -->
   <div style="display:flex;align-items:center;gap:8px">
     <button id="btn-auth-header" onclick="abrirModal()">⚡ Entrar</button>
     <div id="badge-humor">😐 NEUTRO</div>
   </div>
 </header>
 
-<!-- ── BARRA DE SENSORES ────────────────────────────────────────────────── -->
 <div id="barra-sensores">
   <span>🌡️ Temp: <b id="s-temp">--</b>°C</span>
   <span>💧 Umid: <b id="s-umid">--</b>%</span>
@@ -307,7 +405,6 @@
   <span id="esp-status">🔴 ESP32 offline</span>
 </div>
 
-<!-- ── BARRA DE ESTADOS ──────────────────────────────────────────────────── -->
 <div id="barra-estados">
   <div class="estado-item">
     ⚡ Energia
@@ -326,11 +423,30 @@
   </div>
 </div>
 
-<!-- ── CHAT ──────────────────────────────────────────────────────────────── -->
+<div id="camera-widget">
+  <div id="cam-thumb-wrap" onclick="camAbrirModal()" title="Clique para ampliar">
+    <img id="cam-thumb" src="" alt="última foto" style="display:none">
+    <div id="cam-off-label">OFF</div>
+  </div>
+
+  <div id="cam-info">
+    <div id="cam-status-text">
+      📷 <span id="cam-status-dot" class="offline">● OFFLINE</span>
+    </div>
+    <div id="cam-ultima-foto">Nenhuma foto ainda</div>
+  </div>
+
+  <button id="btn-cam-trigger" onclick="camTrigger()">📸 Capturar</button>
+</div>
+
+<div id="cam-modal-overlay" onclick="camFecharModal()">
+  <span id="cam-modal-close" onclick="camFecharModal()">✕</span>
+  <img id="cam-modal-img" src="" alt="foto ampliada" onclick="event.stopPropagation()">
+</div>
+
 <div id="chat"></div>
 <div id="info-amizade"></div>
 
-<!-- ── INPUT ─────────────────────────────────────────────────────────────── -->
 <div id="input-area">
   <input id="campo" type="text" placeholder="Fale com a Yatra..."
          onkeydown="if(event.key==='Enter') enviar()">
@@ -338,13 +454,7 @@
 </div>
 
 <script>
-/* ═══════════════════════════════════════════════════════════════════════════
-   SESSÃO
-   • O user_id agora vive no COOKIE DE SESSÃO do Flask (lado servidor).
-   • O JS não gerencia mais user_id em localStorage.
-   • /me retorna quem está logado; /enviar usa a sessão do cookie.
-   ═══════════════════════════════════════════════════════════════════════════ */
-
+/* ── UI helpers ─────────────────────────────────────────────────────────── */
 const chat = document.getElementById('chat');
 
 const HUMORES = {
@@ -359,7 +469,6 @@ const HUMORES = {
   S: { emoji:'😴', label:'SONO',      bg:'#1e1b4b', cor:'#c7d2fe', face:'-w-'  },
 };
 
-/* ── UI helpers ─────────────────────────────────────────────────────────── */
 function addMsg(texto, tipo) {
   const div = document.createElement('div');
   div.className   = `msg ${tipo}`;
@@ -413,12 +522,8 @@ function atualizarAmizade(nivel, pontos, apelido) {
 }
 
 /* ── AUTH UI ────────────────────────────────────────────────────────────── */
-function abrirModal() {
-  document.getElementById('modal-overlay').classList.add('ativo');
-}
-function fecharModal() {
-  document.getElementById('modal-overlay').classList.remove('ativo');
-}
+function abrirModal() { document.getElementById('modal-overlay').classList.add('ativo'); }
+function fecharModal() { document.getElementById('modal-overlay').classList.remove('ativo'); }
 
 function trocarAba(aba) {
   document.querySelectorAll('.auth-tab').forEach((t, i) => {
@@ -453,9 +558,7 @@ async function fazerLogin() {
 
     _setSucesso('auth-sucesso', `Bem-vindo, ${data.nome}! ✨`);
     setTimeout(() => { fecharModal(); iniciarChat(); }, 900);
-  } catch(e) {
-    _setErro('auth-erro', 'Erro de conexão.');
-  }
+  } catch(e) { _setErro('auth-erro', 'Erro de conexão.'); }
 }
 
 async function fazerCadastro() {
@@ -478,14 +581,10 @@ async function fazerCadastro() {
 
     _setSucesso('auth-sucesso-cad', `Conta criada! Bem-vindo, ${data.nome}! 🎉`);
     setTimeout(() => { fecharModal(); iniciarChat(); }, 900);
-  } catch(e) {
-    _setErro('auth-erro-cad', 'Erro de conexão.');
-  }
+  } catch(e) { _setErro('auth-erro-cad', 'Erro de conexão.'); }
 }
 
 async function continuarComoVisitante() {
-  /* Simplesmente fecha o modal.
-     O servidor já criou um cookie anon_ no primeiro GET / */
   fecharModal();
   iniciarChat();
 }
@@ -495,7 +594,6 @@ async function fazerLogout() {
   location.reload();
 }
 
-/* ── ATUALIZA BOTÃO DO HEADER ──────────────────────────────────────────── */
 function atualizarBotaoAuth(logado, nome) {
   const btn = document.getElementById('btn-auth-header');
   if (logado) {
@@ -521,8 +619,6 @@ async function enviar() {
   const typing = addMsg('...', 'ia typing');
 
   try {
-    /* Nota: NÃO enviamos user_id no body.
-       O Flask lê o user_id do cookie de sessão assinado. */
     const res  = await fetch('/enviar', {
       method:  'POST',
       headers: {'Content-Type': 'application/json'},
@@ -548,9 +644,114 @@ async function enviar() {
   }
 }
 
-/* ── CARGA INICIAL ──────────────────────────────────────────────────────── */
+/* ── LÓGICA DA CÂMERA (NOVO) ────────────────────────────────────────────── */
+let _camUltimaUrl  = null;
+let _camOnline     = false;
+let _camCapturando = false;
+
+async function camPollStatus() {
+  try {
+    const r = await fetch('/api/camera/status');
+    if (!r.ok) return;
+    const d = await r.json();
+
+    _camOnline = d.online;
+
+    const dot   = document.getElementById('cam-status-dot');
+    const thumb = document.getElementById('cam-thumb');
+    const off   = document.getElementById('cam-off-label');
+    const info  = document.getElementById('cam-ultima-foto');
+    const btn   = document.getElementById('btn-cam-trigger');
+
+    if (_camOnline) {
+      dot.textContent = '● ONLINE';
+      dot.className   = 'online';
+      btn.disabled    = _camCapturando;
+    } else {
+      dot.textContent = '● OFFLINE';
+      dot.className   = 'offline';
+      btn.disabled    = true;
+    }
+
+    if (d.last_photo_url && d.last_photo_url !== _camUltimaUrl) {
+      _camUltimaUrl = d.last_photo_url;
+      const url = d.last_photo_url + '?t=' + Date.now();
+      thumb.src     = url;
+      thumb.style.display  = 'block';
+      off.style.display    = 'none';
+
+      if (d.last_photo_at) {
+        const dt = new Date(d.last_photo_at);
+        info.textContent = 'Última: ' + dt.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
+      }
+    }
+
+    if (!_camOnline && !_camUltimaUrl) {
+      thumb.style.display = 'none';
+      off.style.display   = 'flex';
+    }
+  } catch (e) {
+    // Silencioso
+  }
+}
+
+async function camTrigger() {
+  if (_camCapturando || !_camOnline) return;
+
+  _camCapturando = true;
+  const btn = document.getElementById('btn-cam-trigger');
+  btn.disabled    = true;
+  btn.textContent = '⏳ Capturando...';
+
+  try {
+    const r = await fetch('/api/camera/trigger', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contexto: '' })
+    });
+    const d = await r.json();
+
+    if (d.ok && d.foto_url) {
+      const thumb = document.getElementById('cam-thumb');
+      const off   = document.getElementById('cam-off-label');
+      const url   = d.foto_url + '?t=' + Date.now();
+      thumb.src   = url;
+      thumb.style.display = 'block';
+      off.style.display   = 'none';
+      _camUltimaUrl = d.foto_url;
+
+      if (d.descricao) {
+        addMsg('📷 ' + d.descricao, 'ia'); // <-- Função corrigida aqui!
+      }
+    } else {
+      addMsg(d.erro || '❌ Falha na captura.', 'ia'); // <-- E corrigida aqui!
+    }
+  } catch (e) {
+    addMsg('❌ Erro ao conectar com a câmera.', 'ia');
+  } finally {
+    _camCapturando = false;
+    btn.disabled    = !_camOnline;
+    btn.textContent = '📸 Capturar';
+  }
+}
+
+function camAbrirModal() {
+  if (!_camUltimaUrl) return;
+  const modal = document.getElementById('cam-modal-overlay');
+  const img   = document.getElementById('cam-modal-img');
+  img.src = _camUltimaUrl + '?t=' + Date.now();
+  modal.classList.add('open');
+}
+
+function camFecharModal() {
+  document.getElementById('cam-modal-overlay').classList.remove('open');
+}
+
+setInterval(camPollStatus, 5000);
+camPollStatus(); 
+
+/* ── CARGA INICIAL & EVENTOS GERAIS ─────────────────────────────────────── */
 function iniciarChat() {
-  /* /status usa a sessão do cookie — não precisa de parâmetros */
   fetch('/status')
     .then(r => r.json())
     .then(d => {
@@ -565,17 +766,14 @@ function iniciarChat() {
     .catch(err => console.error('[Yatra] Erro ao carregar status:', err));
 }
 
-/* ── POLLING DE SENSORES ────────────────────────────────────────────────── */
 setInterval(() => {
   fetch('/sensores').then(r => r.json()).then(atualizarSensores).catch(() => {});
 }, 1000);
 
-/* ── FECHAR MODAL CLICANDO FORA ─────────────────────────────────────────── */
 document.getElementById('modal-overlay').addEventListener('click', function(e) {
   if (e.target === this) fecharModal();
 });
 
-/* ── ENTER no formulário de login ───────────────────────────────────────── */
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Enter') {
     const loginVisible = document.getElementById('form-login').style.display !== 'none';
@@ -585,21 +783,14 @@ document.addEventListener('keydown', function(e) {
   }
 });
 
-/* ── INÍCIO ─────────────────────────────────────────────────────────────── */
-// Verifica sessão atual via /me — se logado, inicia direto; se não, abre modal.
 fetch('/me')
   .then(r => r.json())
   .then(d => {
     atualizarBotaoAuth(d.logado, d.nome);
-    if (d.logado) {
-      // Usuário já logado (cookie válido) → inicia direto
-      iniciarChat();
-    } else {
-      // Visitante sem conta → pergunta se quer entrar ou continuar
-      abrirModal();
-    }
+    if (d.logado) iniciarChat();
+    else abrirModal();
   })
-  .catch(() => iniciarChat());  // fallback em caso de erro de rede
+  .catch(() => iniciarChat());
 </script>
 </body>
 </html>
